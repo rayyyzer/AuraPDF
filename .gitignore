@@ -19,3 +19,20 @@ logs/
 # beside it.
 /.plugins/
 /.opencode-skills/
+
+# Local build & temporary artifacts
+src-tauri/target/
+src-tauri/node_modules/
+AuraPDF_Latest_Patch/
+*.patch
+*.zip
+*.tgz
+rustup-init.exe
+aurapdf_dump.txt
+auto-*.mjs
+
+# Scratch reports and local artifacts
+found.txt
+*_report.md
+.impeccable/
+artifacts/

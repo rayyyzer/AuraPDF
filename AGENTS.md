@@ -1,41 +1,46 @@
-# figma-make-app
+# AuraPDF
 
-React + Vite + Tailwind CSS project running inside Figma Make.
+A native Windows desktop PDF reader and library manager built with Tauri v2, React 19, Tailwind CSS v4, and a native Rust/PDFium rendering engine.
 
-## Development Server
+## Development & Testing Commands
 
-A Vite development server is **already running** on `$PORT` (default 8443). You don't need to start it manually.
-
-- Preview URL: The user can access the running app through the preview panel
-- Hot reload: Changes to source files are reflected immediately
+- `pnpm dev` - Start Vite dev server on `http://localhost:8443`
+- `pnpm build` - Compile frontend assets to `dist/`
+- `pnpm typecheck` - Run TypeScript validation (`tsc --noEmit`)
+- `pnpm test:rs` - Run Rust backend unit test suite (`cargo test`)
+- `pnpm test:e2e` - Run Playwright automated end-to-end feature and interaction test suite
+- `pnpm tauri build` - Build production release installer (`AuraPDF_0.1.0_x64-setup.exe`)
 
 ## Project Structure
 
-This is the canonical project structure. Start with task-relevant files below. Only follow imports or inspect other files when required, when a documented path is missing, or when the repository contradicts this guide.
+- `src/main.tsx` - React entrypoint; mounts `src/App.tsx`
+- `src/App.tsx` - Primary application shell, library views, dashboard, and tab orchestrator
+- `src/components/reader/PdfReader.tsx` - Core PDF reader, virtualized pages, and annotation integration
+- `src/components/reader/PageCard.tsx` - Virtualized page card rendering, text layer, and annotation overlay
+- `src/components/reader/SvgAnnotationLayer.tsx` - Vector annotation layer (chisel highlights, pen ink, shapes, text, eraser)
+- `src/components/reader/annotationGeometry.ts` - Math & geometry algorithms for smoothing, chisel highlighting, and eraser clipping
+- `src/services/pdf/engine.ts` - Native PDF engine interface (PDFium IPC bridge, text layer, OCR, caching, browser fallback)
+- `src/services/db/index.ts` - Local SQLite persistence (documents, folders, reader state, session tabs, vector annotations)
+- `src-tauri/src/lib.rs` - Tauri desktop entrypoint, IPC command registration, single-instance listener
+- `src-tauri/src/pdf.rs` - Native PDFium renderer, full-text search, bounds-checked rendering
+- `src-tauri/src/ocr.rs` - WinRT OCR, adaptive integral-image normalization, connected components, and Tesseract engine
+- `src-tauri/src/single_instance.rs` - Single-instance mutex and IPC argument handoff
+- `src-tauri/src/win_assoc.rs` - Windows shell file association and Open With registration
+- `vite.config.ts` - Vite configuration with React, Tailwind CSS v4, and `@` path alias
+- `package.json` - Dependencies and build scripts
 
-- `src/main.tsx` - React entrypoint; imports `src/index.css` and mounts `src/App.tsx` into the `#root` element
-- `src/App.tsx` - Primary application component and the usual starting point for UI work
-- `src/index.css` - Global CSS entrypoint and Tailwind CSS v4 import
-- `index.html` - Vite HTML shell containing the `#root` element and loading `src/main.tsx`
-- `package.json` - Project dependencies and the Vite build, development, preview, and formatting scripts
-- `vite.config.ts` - Vite configuration with React, Tailwind CSS v4, and Figma Make plugins plus the `@` alias for `src`
-- `.mise.toml` - Toolchain versions for Node.js and pnpm
+## Dependencies & Stack
 
-## Dependencies
+- Frontend: React 19, Zustand 5, TanStack Virtual 3, Tailwind CSS v4
+- Desktop Shell: Tauri v2 (`@tauri-apps/api`, `@tauri-apps/plugin-sql`, `@tauri-apps/plugin-dialog`)
+- Native Engine: Rust edition 2021, `pdfium-render` 0.9.4, Windows WinRT OCR (`windows` crate)
 
-- Runtime: React 19 and React DOM 19
-- Styling: Tailwind CSS v4 with the `@tailwindcss/vite` plugin
-- Build tooling: Vite 8, TypeScript 5.7, and `@vitejs/plugin-react`
-- Formatting: oxfmt
+## Code Quality
 
-## Styling
-
-This project uses **Tailwind CSS v4** through the `@tailwindcss/vite` plugin configured in `vite.config.ts`. `src/index.css` imports Tailwind with `@import 'tailwindcss';`. Use Tailwind utility classes directly in JSX and put global CSS or Tailwind v4 theme customization in `src/index.css`. This scaffold does not need a Tailwind config file or PostCSS config.
-
-`src/main.tsx` imports `src/index.css`, so global font wiring belongs in `src/index.css`. Keep CSS `@import` statements first, then add any `@font-face` rules and font-family defaults there.
-
-## Code quality
-
-- Use double quotes for strings containing apostrophes (`"We're here to help"`), or escape them in single-quoted strings. An unescaped apostrophe in a single-quoted string breaks the build.
+- Use double quotes for strings containing apostrophes (`"We're here to help"`), or escape them in single-quoted strings.
 - Ensure JSX tags are closed and braces are balanced.
 - Export components as default exports.
+
+## Build & Release Rule
+
+- With every prompt that modifies the codebase, automatically trigger `pnpm tauri build` to keep the installation executable (`src-tauri/target/release/bundle/nsis/AuraPDF_0.1.0_x64-setup.exe`) updated and ready for download/install.
