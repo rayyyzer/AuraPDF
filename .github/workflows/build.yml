@@ -1,0 +1,91 @@
+# Free for public repositories. Produces an unsigned installer plus its SHA-256.
+# Signing is optional and documented in docs/RELEASING.md.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Frontend build
+        run: pnpm build
+
+      - name: Rust tests
+        run: pnpm test:rs
+
+      - name: Selection text tests
+        run: pnpm test:selection
+
+  installer:
+    name: Installer
+    needs: verify
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build installers
+        run: pnpm tauri build
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          Get-FileHash src-tauri/target/release/bundle/nsis/*-setup.exe -Algorithm SHA256 |
+            Format-List | Tee-Object -FilePath checksum.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurapdf-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            checksum.txt
+          retention-days: 14

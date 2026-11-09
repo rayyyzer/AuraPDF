@@ -27,24 +27,71 @@
 }
 
 :root {
-  /* Navy Mirage dark — JS overrides on first paint */
-  --background: #0F1722;
-  --foreground: #E8EDF3;
-  --card: #141E30;
-  --card-foreground: #E8EDF3;
-  --primary: #35577D;
+  /* Modern Vivid Indigo / Violet — Midnight Obsidian & Cool Indigo */
+  --background: #07080E;
+  --foreground: #F1F5F9;
+  --card: #0D0F1A;
+  --card-foreground: #F1F5F9;
+  --primary: #7C5CFC;
   --primary-foreground: #FFFFFF;
-  --secondary: #1B293D;
-  --secondary-foreground: #718093;
-  --muted: #22344C;
-  --muted-foreground: #718093;
-  --accent: #35577D;
+  --secondary: #131726;
+  --secondary-foreground: #8F9BB3;
+  --muted: #1B2137;
+  --muted-foreground: #8F9BB3;
+  --accent: #7C5CFC;
   --accent-foreground: #FFFFFF;
-  --border: #263548;
-  --ring: #35577D;
+  --border: #1F263E;
+  --ring: #7C5CFC;
   --radius: 8px;
-  --sidebar-w: 188px;
-  --sidebar-w-collapsed: 44px;
+  --sidebar-w: 208px;
+  --sidebar-w-collapsed: 48px;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-glide: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --logo-bg-start: #0F172A;
+  --logo-bg-end: #060A12;
+  --logo-border: #1E293B;
+  --logo-doc-bg-start: #FFFFFF;
+  --logo-doc-bg-end: #F1F5F9;
+  --logo-doc-border: transparent;
+  --logo-doc-line-1: #0F172A;
+  --logo-doc-line-2: var(--primary, #00D2FF);
+  --logo-doc-line-3: #94A3B8;
+  --logo-back-start: #0369A1;
+  --logo-back-end: #075985;
+  --logo-back-border: transparent;
+  --logo-foil-color: #BAE6FD;
+  --logo-foil-opacity: 0.65;
+  --logo-glow-opacity: 0.18;
+  --logo-text-bar: #0F172A;
+  --logo-text-subtle: #94A3B8;
+}
+
+.dark {
+  --logo-bg-start: #0F172A;
+  --logo-bg-end: #060A12;
+  --logo-border: #1E293B;
+  --logo-doc-bg-start: #FFFFFF;
+  --logo-doc-bg-end: #F1F5F9;
+  --logo-doc-border: transparent;
+  --logo-doc-line-1: #0F172A;
+  --logo-doc-line-2: var(--primary, #00D2FF);
+  --logo-doc-line-3: #94A3B8;
+  --logo-back-start: #0369A1;
+  --logo-back-end: #075985;
+  --logo-back-border: transparent;
+  --logo-foil-color: #BAE6FD;
+  --logo-foil-opacity: 0.65;
+  --logo-glow-opacity: 0.18;
+  --logo-text-bar: #0F172A;
+  --logo-text-subtle: #94A3B8;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
 }
 
 *,
@@ -66,6 +113,65 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
+  font-size: 14px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.app-content-width {
+  width: min(100%, 1120px);
+  margin-inline: auto;
+}
+
+.settings-content-width {
+  width: min(100%, 780px);
+  margin-inline: auto;
+}
+
+.premium-card {
+  position: relative;
+  transition: transform 190ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 190ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 190ms ease,
+    background-color 190ms ease;
+}
+
+.premium-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  background-color: color-mix(in srgb, var(--foreground) 2%, var(--card));
+  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.32);
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-card {
+    transition: border-color 120ms ease, background-color 120ms ease;
+  }
+
+  .premium-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+[data-reduce-motion="true"] *,
+[data-reduce-motion="true"] *::before,
+[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+[data-reduce-motion="true"] .premium-card:hover {
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 #root {
@@ -138,20 +244,410 @@ body {
   animation: spin-slow 1.5s linear infinite;
 }
 
-/* Fade in */
+/* Clean fade-in for tabs, text labels, and content panels */
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .fade-in {
-  animation: fade-in 140ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fade-in 140ms ease-out forwards;
+}
+
+/* Delicate Raycast / Apple spring scale-in for dropdown menus */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.dropdown-in {
+  animation: dropdown-in 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top right;
+}
+
+/* Popup menu springing upwards from a bottom trigger */
+@keyframes dropdown-up {
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.dropdown-up {
+  animation: dropdown-up 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: bottom center;
+}
+
+.header-glide {
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease;
+}
+
+.bottom-glide {
+  transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* View & panel transitions */
+@keyframes view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.view-enter {
+  animation: view-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes reader-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.988);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.reader-enter {
+  animation: reader-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes page-fade {
+  from {
+    opacity: 0.72;
+    transform: scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.page-fade {
+  animation: page-fade 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.modal-pop {
+  animation: modal-pop 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes backdrop-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.backdrop-fade {
+  animation: backdrop-fade 180ms ease-out forwards;
+}
+
+@keyframes toast-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.toast-slide-up {
+  animation: toast-slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Slide in from right */
 @keyframes slide-in-right {
-  from { opacity: 0; transform: translateX(8px); }
+  from { opacity: 0; transform: translateX(16px); }
   to { opacity: 1; transform: translateX(0); }
 }
 .slide-in-right {
-  animation: slide-in-right 160ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slide-in-right 220ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Staggered list/grid item entrance */
+@keyframes stagger-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.stagger-rise {
+  animation: stagger-rise 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Tactile button & interactive surface micro-interactions */
+button:not(:disabled) {
+  transition:
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 26%, transparent);
+  color: var(--foreground);
+}
+
+.textLayer {
+  mix-blend-mode: multiply;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.textLayer span {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.textLayer span::selection {
+  background: rgba(99, 102, 241, 0.28);
+  color: transparent;
+}
+
+.dark .textLayer span::selection {
+  background: rgba(129, 140, 248, 0.35);
+  color: transparent;
+}
+
+.textLayer[data-has-custom-selection="true"] span::selection {
+  background: transparent;
+  color: transparent;
+}
+
+@keyframes selection-pop-above {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 5px)) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+}
+
+@keyframes selection-pop-below {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -5px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.selection-popover-above {
+  transform: translate(-50%, -100%);
+  animation: selection-pop-above 150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: bottom center;
+}
+
+.selection-popover-below {
+  transform: translate(-50%, 0);
+  animation: selection-pop-below 150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top center;
+}
+
+@keyframes annotation-ink-settle {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.annotation-ink-in {
+  animation: annotation-ink-settle 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Annotation cursors are scoped to the active PDF page surface. */
+.annotation-surface[data-active-tool="select"] { cursor: default; }
+.annotation-surface[data-active-tool="highlight"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M4 22L8 16L13 21L6 24Z' fill='%23F6D860' stroke='%238C6728' stroke-width='1.2' stroke-linejoin='round'/%3E%3Crect x='3' y='23' width='6' height='3' rx='0.8' fill='%23F6D860' opacity='0.85'/%3E%3Cpath d='M8 16L18 6L23 11L13 21Z' fill='%23D4AF6A' stroke='%23191816' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M18 6L20.5 3.5L25.5 8.5L23 11Z' fill='%23191816'/%3E%3C/svg%3E") 5 24, crosshair;
+}
+.annotation-surface[data-active-tool="pen"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M3 21l3.5-1L19 7.5 16.5 5 4 17.5 3 21z' fill='%23D4AF6A' stroke='%23191816' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M3 21l1.8-.5-1.3-1.3L3 21z' fill='%23191816'/%3E%3C/svg%3E") 3 21, crosshair;
+}
+.annotation-surface[data-active-tool="note"] { cursor: crosshair; }
+
+/* The eraser paints its own contact ring under the pointer, so the system cursor is
+   hidden on the page surface rather than showing a second, mismatched icon. */
+.annotation-surface[data-active-tool="eraser"] { cursor: none; }
+
+/* Native selection is the only thing that paints a native selection now; it is tinted to
+   the accent and kept glyph-tight so it reads as selection, not as an annotation. */
+.textLayer ::selection {
+  background: rgba(56, 189, 248, 0.28);
+  color: transparent;
+  border-radius: 2px;
+}
+
+.textLayer span {
+  cursor: text;
+}
+
+/* ── Motion system ────────────────────────────────────────────────────────
+   One set of durations and easings, so unrelated surfaces stop inventing their own
+   timings. 110ms feedback, 150ms overlays, 220ms panels. */
+
+:root {
+  --ease-soft: cubic-bezier(0.2, 0.8, 0.25, 1);
+  --dur-fast: 110ms;
+  --dur-base: 150ms;
+  --dur-slow: 220ms;
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.popover-in {
+  animation: popover-in var(--dur-base) var(--ease-soft) both;
+  transform-origin: top center;
+}
+
+/* Page placeholder: a calm shimmer instead of a white box that pulses. */
+@keyframes page-shimmer {
+  0% {
+    background-position: -140% 0;
+  }
+  100% {
+    background-position: 240% 0;
+  }
+}
+
+.page-skeleton {
+  background-color: var(--card, #0f1420);
+  background-image: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0.03) 20%,
+    rgba(255, 255, 255, 0.09) 42%,
+    rgba(255, 255, 255, 0.03) 62%
+  );
+  background-size: 240% 100%;
+  animation: page-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Shared interactive feedback. */
+button,
+[role="button"] {
+  transition:
+    background-color var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    opacity var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft);
+}
+
+/* Press feedback everywhere: a 1px settle is enough to feel physical without making the
+   whole UI twitchy. */
+button:not(:disabled):active,
+[role="button"]:active {
+  transform: translateY(0.5px) scale(0.985);
+}
+
+/* Interactive surfaces that lift on hover. One class, so the library, folder cards and
+   quick actions share the same motion instead of each inventing one. */
+.interactive-lift {
+  transition:
+    transform var(--dur-base) var(--ease-soft),
+    box-shadow var(--dur-base) var(--ease-soft),
+    border-color var(--dur-base) var(--ease-soft),
+    background-color var(--dur-base) var(--ease-soft);
+}
+
+.interactive-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.55);
+}
+
+.interactive-lift:active {
+  transform: translateY(0) scale(0.995);
+}
+
+/* Sidebar navigation: ease the row instead of snapping it. */
+.nav-item {
+  transition:
+    background-color var(--dur-base) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft),
+    padding-left var(--dur-base) var(--ease-soft);
+}
+
+.nav-item:hover {
+  padding-left: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Printing ─────────────────────────────────────────────────────────────
+   The reader virtualises pages, so printing the live DOM would only ever capture the
+   pages that happen to be mounted. `services/print.ts` renders the requested pages into
+   #aurapdf-print-root; everything else is hidden while the print dialog is open. */
+
+#aurapdf-print-root {
+  display: none;
+}
+
+@media print {
+  #root {
+    display: none !important;
+  }
+
+  #aurapdf-print-root {
+    display: block !important;
+  }
+
+  .aurapdf-print-page {
+    break-after: page;
+    page-break-after: always;
+    text-align: center;
+  }
+
+  .aurapdf-print-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .aurapdf-print-page img {
+    max-width: 100%;
+    max-height: 100vh;
+    object-fit: contain;
+  }
+
+  @page {
+    margin: 10mm;
+  }
 }
