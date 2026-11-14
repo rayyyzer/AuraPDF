@@ -7,7 +7,7 @@ Everything here is free except the optional code-signing certificate.
 ## 0. Before every release
 
 ```powershell
-cd D:\Projects\AuraPDF_Figma
+cd D:\Projects\AuraPDF
 pnpm typecheck          # must print nothing
 pnpm test:rs            # must be all green
 pnpm test:selection     # 10 checks

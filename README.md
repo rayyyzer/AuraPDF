@@ -25,7 +25,7 @@
 </div>
 
 <p align="center">
-  <img src="./tests/screenshots/01_dashboard.png" alt="AuraPDF Dashboard & Library" width="850" style="border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.3);" />
+  <img src="./docs/images/dashboard-showcase.jpg" alt="AuraPDF Dashboard & Library" width="850" style="border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.3);" />
 </p>
 
 ## Why AuraPDF?
@@ -48,7 +48,7 @@ Enterprise PDF suites have become heavy, bloated, and subscription-gated. Web-ba
 * **Multi-Tab Workspace**: Open dozens of heavy documents side-by-side with instantaneous tab switching and native drag-and-drop tab reordering.
 
 <p align="center">
-  <img src="./tests/screenshots/23-reader.png" alt="AuraPDF Document View" width="850" style="border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.3);" />
+  <img src="./docs/images/reader-showcase.jpg" alt="AuraPDF Document View" width="850" style="border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.3);" />
 </p>
 
 ### ✍️ Tactile Vector Annotations
@@ -58,9 +58,9 @@ Enterprise PDF suites have become heavy, bloated, and subscription-gated. Web-ba
 * **Round-Trip PDF Export**: Annotations aren’t trapped in an app database—export a flattened or vector-annotated PDF that opens seamlessly in Adobe Acrobat, PDF-XChange, or macOS Preview.
 
 <p align="center">
-  <img src="./tests/screenshots/25-tool-options.png" alt="Annotation Options & Palette" width="420" style="border-radius: 8px;" />
+  <img src="./docs/images/annotations-showcase.jpg" alt="Annotation Options & Palette" width="420" style="border-radius: 8px;" />
   &nbsp;&nbsp;
-  <img src="./tests/screenshots/28-print-sheet.png" alt="Dedicated In-App Print Engine" width="420" style="border-radius: 8px;" />
+  <img src="./docs/images/print-showcase.jpg" alt="Dedicated In-App Print Engine" width="420" style="border-radius: 8px;" />
 </p>
 
 ### 🔍 Hybrid Local OCR

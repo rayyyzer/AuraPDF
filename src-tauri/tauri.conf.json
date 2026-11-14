@@ -31,7 +31,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
+        "https://github.com/rayyyzer/AuraPDF/releases/latest/download/latest.json"
       ],
       "pubkey": ""
     }

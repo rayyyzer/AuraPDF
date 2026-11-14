@@ -1,9 +1,6 @@
 export type View = "dashboard" | "library" | "reader" | "search" | "settings"
 export type ThemeMode = "system" | "light" | "dark"
 export type ColorTheme = "navy" | "emerald" | "moon" | "ember" | "burgundy"
-// Legacy aliases kept for migration safety
-export type ThemePreference = ThemeMode
-export type AccentColor = ColorTheme
 
 export type ViewMode = "single" | "two-page" | "continuous" | "two-page-continuous"
 
@@ -36,24 +33,4 @@ export interface TabState {
   rotation: number
   viewMode: ViewMode
   bookmarks: Bookmark[]
-}
-
-export interface Message {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  citations?: Citation[]
-}
-
-export interface Citation {
-  page: number
-  excerpt: string
-}
-
-export interface Annotation {
-  id: string
-  page: number
-  text: string
-  color: string
-  note?: string
 }

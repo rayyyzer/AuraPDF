@@ -2,6 +2,12 @@
   "name": "aurapdf",
   "private": true,
   "version": "0.9.0",
+  "author": "A R Muhammad Rayhan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rayyyzer/AuraPDF.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
