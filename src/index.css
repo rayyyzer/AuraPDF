@@ -104,7 +104,7 @@ html,
 body {
   height: 100%;
   margin: 0;
-  touch-action: manipulation;
+  touch-action: pan-x pan-y;
 }
 
 body {
@@ -204,10 +204,12 @@ textarea {
   background: var(--muted-foreground) !important;
 }
 
-/* Focus ring */
-:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+@layer base {
+  /* Focus ring */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
 
 /* Transitions for theme switching */

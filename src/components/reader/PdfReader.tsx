@@ -2479,7 +2479,7 @@ export default function PdfReader({
     <div
       className="flex flex-col bg-muted/60 dark:bg-background h-full relative overflow-hidden select-none"
       onPointerMove={handleReaderPointerMove}
-      style={{ touchAction: "manipulation" }}
+      style={{ touchAction: "pan-x pan-y" }}
     >
       {/* ── PINNED TAB BAR (Normal mode: tabs pinned at very top) ─── */}
       {!isProReaderMode && renderTabBar("relative z-40")}
@@ -2523,7 +2523,7 @@ export default function PdfReader({
           <div className="flex items-center gap-0.5 ml-auto">
             {/* Search */}
             {showSearch ? (
-              <div className="flex items-center gap-1.5 bg-muted rounded border border-border px-2 py-1">
+              <div className="flex items-center gap-1.5 bg-muted rounded border border-border px-2 py-1 focus-within:border-foreground/25 transition-colors">
                 <SearchIcon
                   size={12}
                   className="text-muted-foreground shrink-0"
@@ -2538,7 +2538,7 @@ export default function PdfReader({
                     }
                   }}
                   placeholder="Search in document…"
-                  className="w-36 text-[11px] bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  className="w-36 text-[11px] bg-transparent text-foreground placeholder:text-muted-foreground outline-none focus:outline-none focus-visible:outline-none"
                 />
                 {searchQuery && (
                   <span className="text-[10px] text-muted-foreground font-mono shrink-0">
@@ -3041,8 +3041,8 @@ export default function PdfReader({
       {/* ── BODY ─────────────────────────────────────────────── */}
       <div
         ref={containerRef}
-        className="flex-1 relative overflow-hidden flex"
-        style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+        className="flex-1 min-w-0 min-h-0 relative overflow-hidden flex"
+        style={{ touchAction: "pan-x pan-y" }}
       >
         {docLoadError ? (
           <div className="flex-1 flex flex-col items-center justify-center">
@@ -3215,7 +3215,7 @@ export default function PdfReader({
             {/* ── PDF CANVAS ──────────────────────────────────────── */}
             <div
               ref={canvasContainerRef}
-              className={`flex-1 relative ${
+              className={`flex-1 min-w-0 min-h-0 relative ${
                 viewMode.includes("continuous")
                   ? "overflow-hidden px-0"
                   : `overflow-auto flex items-center justify-center px-4`
@@ -3559,7 +3559,7 @@ export default function PdfReader({
                 }}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => jumpPage(parseInt(pageInput) || page)}
-                className="w-8 text-center text-[12px] font-mono bg-transparent border-b border-border/60 text-foreground focus:outline-none focus:border-primary transition-colors"
+                className="w-8 text-center text-[12px] font-mono bg-transparent border-b border-border/60 text-foreground outline-none focus:outline-none focus-visible:outline-none focus:border-primary transition-colors"
               />
             )}
             <span className="text-[12px] text-muted-foreground font-mono">
@@ -3696,7 +3696,7 @@ export default function PdfReader({
                   setPaletteIdx(0)
                 }}
                 placeholder="Search commands or enter a page number…"
-                className="flex-1 text-[13px] bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none"
+                className="flex-1 text-[13px] bg-transparent text-foreground placeholder:text-muted-foreground outline-none focus:outline-none focus-visible:outline-none"
               />
               <kbd className="text-[10px] text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
                 Esc

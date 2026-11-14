@@ -146,6 +146,41 @@ pub fn run() {
                     let _ = window.set_icon(icon.clone());
                 }
                 let _ = window.set_fullscreen(true);
+
+                #[cfg(target_os = "windows")]
+                {
+                    // Keep WebView2 zoom control enabled so Windows trackpad/touchpad pinch
+                    // gestures reach JS as Ctrl+Wheel, while locking ZoomFactor to 1.0 so
+                    // zooming a PDF never scales or shifts the application UI chrome.
+                    let _ = window.with_webview(|wv| unsafe {
+                        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
+                        use webview2_com::ZoomFactorChangedEventHandler;
+
+                        let controller: ICoreWebView2Controller = wv.controller();
+                        let _ = controller.SetZoomFactor(1.0);
+                        if let Ok(core) = controller.CoreWebView2() {
+                            if let Ok(settings) = core.Settings() {
+                                let _ = settings.SetIsZoomControlEnabled(true);
+                            }
+                        }
+
+                        let mut token: i64 = 0;
+                        let _ = controller.add_ZoomFactorChanged(
+                            &ZoomFactorChangedEventHandler::create(Box::new(move |sender, _| {
+                                if let Some(ctrl) = sender {
+                                    let mut factor = 1.0;
+                                    if ctrl.ZoomFactor(&mut factor).is_ok()
+                                        && (factor - 1.0).abs() > 1e-4
+                                    {
+                                        let _ = ctrl.SetZoomFactor(1.0);
+                                    }
+                                }
+                                Ok(())
+                            })),
+                            &mut token,
+                        );
+                    });
+                }
             }
             if !isolated_profile {
                 backup_database(app.handle());
