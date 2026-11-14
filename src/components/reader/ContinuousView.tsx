@@ -66,6 +66,7 @@ export const ContinuousView = memo(
       ref,
     ) => {
       const parentRef = useRef<HTMLDivElement>(null)
+      const stageRef = useRef<HTMLDivElement>(null)
       const contentRef = useRef<HTMLDivElement>(null)
       const [containerWidth, setContainerWidth] = useState(0)
       const [maxPageBaseWidth, setMaxPageBaseWidth] = useState(520)
@@ -171,11 +172,18 @@ export const ContinuousView = memo(
         },
       })
 
+      const syncMeasureAndStageHeight = useCallback(() => {
+        rowVirtualizer.measure()
+        const nextTotal = `${rowVirtualizer.getTotalSize()}px`
+        if (stageRef.current) stageRef.current.style.height = nextTotal
+        if (contentRef.current) contentRef.current.style.height = nextTotal
+      }, [rowVirtualizer])
+
       // Measure synchronously before paint so parent zoom scroll-anchoring sees accurate
       // post-zoom row heights instead of clamping against stale scrollHeight.
       useLayoutEffect(() => {
-        rowVirtualizer.measure()
-      }, [zoom, rotation, fitMode, containerWidth, twoPage, rowVirtualizer])
+        syncMeasureAndStageHeight()
+      }, [zoom, rotation, fitMode, containerWidth, twoPage, syncMeasureAndStageHeight])
 
       const handleMeasure = useCallback(
         (index: number, baseW: number, baseH: number) => {
@@ -240,19 +248,20 @@ export const ContinuousView = memo(
             })
           }
         },
-        measureNow: () => rowVirtualizer.measure(),
+        measureNow: syncMeasureAndStageHeight,
         getScrollElement: () => parentRef.current,
         getPreviewElement: () => contentRef.current,
       }))
 
       // Ensure horizontal scroll extents accommodate zoomed pages without clipping left edges.
-      const scaledRowWidth =
+      const pageColWidth =
         fitMode === "width" && containerWidth > 0
-          ? containerWidth
+          ? Math.max(0, containerWidth - 32)
           : Math.ceil(
               (twoPage ? maxPageBaseWidth * 2 + 16 : maxPageBaseWidth) *
                 (zoom / 100),
-            ) + 32
+            )
+      const scaledRowWidth = pageColWidth + 32
       const contentWidthStyle =
         containerWidth > 0 && scaledRowWidth > containerWidth
           ? `${scaledRowWidth}px`
@@ -266,16 +275,25 @@ export const ContinuousView = memo(
           }`}
         >
           <div
-            ref={contentRef}
+            ref={stageRef}
             style={{
               height: `${rowVirtualizer.getTotalSize()}px`,
-
               width: contentWidthStyle,
               minWidth: "100%",
-
+              paddingInline: "16px",
+              overflow: "clip",
               position: "relative",
             }}
           >
+            <div
+              ref={contentRef}
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                width: `${pageColWidth}px`,
+                margin: "0 auto",
+                position: "relative",
+              }}
+            >
             {virtualItems.map((virtualRow) => {
               return (
                 <div
@@ -380,6 +398,7 @@ export const ContinuousView = memo(
                 </div>
               )
             })}
+            </div>
           </div>
         </div>
       )

@@ -36,6 +36,7 @@ import {
 } from "../../icons"
 
 import { ContinuousView } from "./ContinuousView"
+import { computeClampedPinchTransform } from "./zoomGeometry"
 import { ThumbnailSidebar } from "./ThumbnailSidebar"
 import { PageThumbnail } from "./PageThumbnail"
 import { useAppStore } from "../../stores/useAppStore"
@@ -253,19 +254,27 @@ export default function PdfReader({
     prevZoom: number
     animateFlip: boolean
     clearPinchTransform: boolean
+    settleRect?: { left: number; top: number; width: number; height: number }
   } | null>(null)
   const targetZoomRef = useRef(zoom)
   const pinchStateRef = useRef<{
     active: boolean
     baseZoom: number
+    touchAnchorZoom: number
     currentScale: number
-    startClientX: number
-    startClientY: number
     curClientX: number
     curClientY: number
+    lastClientX: number
+    lastClientY: number
+    lastTx: number
+    lastTy: number
+    lastRatio: number
+    availLeft: number
+    availTop: number
+    availWidth: number
+    availHeight: number
+    centerVertical: boolean
     basePreviewRect: DOMRect
-    localOriginX: number
-    localOriginY: number
     scrollEl: HTMLElement
     previewEl: HTMLElement
     wheelTimer: ReturnType<typeof setTimeout> | null
@@ -1084,6 +1093,38 @@ export default function PdfReader({
     }
   }, [viewMode])
 
+  const applyPinchTransformToDom = useCallback(
+    (state: NonNullable<typeof pinchStateRef.current>) => {
+      const ratio = state.currentScale / state.baseZoom
+      const { tx, ty } = computeClampedPinchTransform({
+        baseLeft: state.basePreviewRect.left,
+        baseTop: state.basePreviewRect.top,
+        baseWidth: state.basePreviewRect.width,
+        baseHeight: state.basePreviewRect.height,
+        availLeft: state.availLeft,
+        availTop: state.availTop,
+        availWidth: state.availWidth,
+        availHeight: state.availHeight,
+        curClientX: state.curClientX,
+        curClientY: state.curClientY,
+        lastClientX: state.lastClientX,
+        lastClientY: state.lastClientY,
+        lastTx: state.lastTx,
+        lastTy: state.lastTy,
+        lastRatio: state.lastRatio,
+        nextRatio: ratio,
+        centerVertical: state.centerVertical,
+      })
+      state.lastClientX = state.curClientX
+      state.lastClientY = state.curClientY
+      state.lastTx = tx
+      state.lastTy = ty
+      state.lastRatio = ratio
+      state.previewEl.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${ratio})`
+    },
+    [],
+  )
+
   const commitPinchZoom = useCallback(() => {
     const state = pinchStateRef.current
     if (!state || !state.active) return
@@ -1095,6 +1136,7 @@ export default function PdfReader({
     if (state.rafId !== null) {
       cancelAnimationFrame(state.rafId)
       state.rafId = null
+      applyPinchTransformToDom(state)
     }
 
     const finalZoom = Math.max(
@@ -1102,6 +1144,8 @@ export default function PdfReader({
       Math.min(500, Math.round(state.currentScale)),
     )
     const { previewEl, scrollEl, curClientX, curClientY, baseZoom } = state
+    const lastTx = state.lastTx
+    const lastTy = state.lastTy
 
     state.active = false
     pinchStateRef.current = null
@@ -1110,6 +1154,12 @@ export default function PdfReader({
       previewEl.style.transform = ""
       previewEl.style.transformOrigin = ""
       previewEl.style.transition = ""
+      if (Math.abs(lastTx) > 0.5) {
+        scrollEl.scrollLeft = Math.max(0, scrollEl.scrollLeft - lastTx)
+      }
+      if (Math.abs(lastTy) > 0.5) {
+        scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop - lastTy)
+      }
       showZoomHud(baseZoom, 350)
       return
     }
@@ -1136,13 +1186,19 @@ export default function PdfReader({
       prevZoom: baseZoom,
       animateFlip: false,
       clearPinchTransform: true,
+      settleRect: {
+        left: elRect.left,
+        top: elRect.top,
+        width: elRect.width,
+        height: elRect.height,
+      },
     }
 
     setFitMode("manual")
     targetZoomRef.current = finalZoom
     showZoomHud(finalZoom, 550)
     set({ zoom: finalZoom })
-  }, [set, findAnchorTarget, showZoomHud])
+  }, [set, findAnchorTarget, showZoomHud, applyPinchTransformToDom])
 
   const applyAnchoredZoom = useCallback(
     (
@@ -1268,6 +1324,42 @@ export default function PdfReader({
 
     const anchoredEl = applyAnchorScroll()
 
+    const playZoomTransition = (
+      tx: number,
+      ty: number,
+      invScale: number,
+      duration: number,
+    ) => {
+      const reducedMotion =
+        useAppStore.getState().reduceMotion ||
+        window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+      if (reducedMotion || typeof previewEl.animate !== "function") return
+
+      activeZoomAnimRef.current?.cancel()
+      const anim = previewEl.animate(
+        [
+          {
+            transformOrigin: "0 0",
+            transform: `translate3d(${tx}px, ${ty}px, 0) scale(${invScale})`,
+          },
+          {
+            transformOrigin: "0 0",
+            transform: "translate3d(0px, 0px, 0px) scale(1)",
+          },
+        ],
+        {
+          duration,
+          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        },
+      )
+      activeZoomAnimRef.current = anim
+      anim.onfinish = () => {
+        if (activeZoomAnimRef.current === anim) {
+          activeZoomAnimRef.current = null
+        }
+      }
+    }
+
     if (
       anchor.animateFlip &&
       anchoredEl &&
@@ -1275,45 +1367,40 @@ export default function PdfReader({
       zoom > 0 &&
       anchor.prevZoom !== zoom
     ) {
-      const reducedMotion =
-        useAppStore.getState().reduceMotion ||
-        window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-      if (!reducedMotion && typeof previewEl.animate === "function") {
-        const afterElRect = anchoredEl.getBoundingClientRect()
+      const afterElRect = anchoredEl.getBoundingClientRect()
+      const pRect = previewEl.getBoundingClientRect()
+      const invScale = Math.max(0.25, Math.min(4, anchor.prevZoom / zoom))
+      const afterX = afterElRect.left + anchor.u * afterElRect.width
+      const afterY = afterElRect.top + anchor.v * afterElRect.height
+      const localX = afterX - pRect.left
+      const localY = afterY - pRect.top
+      const tx =
+        anchor.beforeAnchorScreenX - afterX + (1 - invScale) * localX
+      const ty =
+        anchor.beforeAnchorScreenY - afterY + (1 - invScale) * localY
+      playZoomTransition(tx, ty, invScale, 165)
+    } else if (
+      anchor.clearPinchTransform &&
+      !viewMode.includes("continuous") &&
+      anchoredEl &&
+      anchor.settleRect
+    ) {
+      const afterElRect = anchoredEl.getBoundingClientRect()
+      const before = anchor.settleRect
+      const dx = Math.abs(before.left - afterElRect.left)
+      const dy = Math.abs(before.top - afterElRect.top)
+      const dw = Math.abs(before.width - afterElRect.width)
+      if (dx > 1.5 || dy > 1.5 || dw > 2) {
         const pRect = previewEl.getBoundingClientRect()
-        const invScale = Math.max(0.25, Math.min(4, anchor.prevZoom / zoom))
-        const afterX = afterElRect.left + anchor.u * afterElRect.width
-        const afterY = afterElRect.top + anchor.v * afterElRect.height
-        const localX = afterX - pRect.left
-        const localY = afterY - pRect.top
-        const tx =
-          anchor.beforeAnchorScreenX - afterX + (1 - invScale) * localX
-        const ty =
-          anchor.beforeAnchorScreenY - afterY + (1 - invScale) * localY
-
-        activeZoomAnimRef.current?.cancel()
-        const anim = previewEl.animate(
-          [
-            {
-              transformOrigin: "0 0",
-              transform: `translate3d(${tx}px, ${ty}px, 0) scale(${invScale})`,
-            },
-            {
-              transformOrigin: "0 0",
-              transform: "translate3d(0px, 0px, 0px) scale(1)",
-            },
-          ],
-          {
-            duration: 165,
-            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-          },
-        )
-        activeZoomAnimRef.current = anim
-        anim.onfinish = () => {
-          if (activeZoomAnimRef.current === anim) {
-            activeZoomAnimRef.current = null
-          }
-        }
+        const invScale =
+          afterElRect.width > 0
+            ? Math.max(0.5, Math.min(2, before.width / afterElRect.width))
+            : 1
+        const localX = afterElRect.left - pRect.left
+        const localY = afterElRect.top - pRect.top
+        const tx = before.left - afterElRect.left + (1 - invScale) * localX
+        const ty = before.top - afterElRect.top + (1 - invScale) * localY
+        playZoomTransition(tx, ty, invScale, 90)
       }
     }
 
@@ -1354,16 +1441,7 @@ export default function PdfReader({
         const current = pinchStateRef.current
         if (!current || !current.active) return
         current.rafId = null
-        const ratio = current.currentScale / current.baseZoom
-        const tx =
-          current.curClientX -
-          current.basePreviewRect.left -
-          ratio * current.localOriginX
-        const ty =
-          current.curClientY -
-          current.basePreviewRect.top -
-          ratio * current.localOriginY
-        current.previewEl.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${ratio})`
+        applyPinchTransformToDom(current)
       })
     }
 
@@ -1381,20 +1459,46 @@ export default function PdfReader({
       }
 
       const basePreviewRect = previewEl.getBoundingClientRect()
+      const scrollRect = scrollEl.getBoundingClientRect()
+      const stageEl = previewEl.parentElement
+      const stageStyle = stageEl ? getComputedStyle(stageEl) : null
+      const padLeft = stageStyle ? parseFloat(stageStyle.paddingLeft) || 0 : 0
+      const padRight = stageStyle ? parseFloat(stageStyle.paddingRight) || 0 : 0
+      const padTop = stageStyle ? parseFloat(stageStyle.paddingTop) || 0 : 0
+      const padBottom = stageStyle
+        ? parseFloat(stageStyle.paddingBottom) || 0
+        : 0
+
+      const availLeft = scrollRect.left + scrollEl.clientLeft + padLeft
+      const availTop = scrollRect.top + scrollEl.clientTop + padTop
+      const availWidth = Math.max(0, scrollEl.clientWidth - padLeft - padRight)
+      const availHeight = Math.max(
+        0,
+        scrollEl.clientHeight - padTop - padBottom,
+      )
+
       previewEl.style.transformOrigin = "0 0"
       previewEl.style.transition = "none"
 
+      const initialZoom = zoomRef.current > 0 ? zoomRef.current : 100
       const state = {
         active: true,
-        baseZoom: zoomRef.current > 0 ? zoomRef.current : 100,
-        currentScale: zoomRef.current > 0 ? zoomRef.current : 100,
-        startClientX: clientX,
-        startClientY: clientY,
+        baseZoom: initialZoom,
+        touchAnchorZoom: initialZoom,
+        currentScale: initialZoom,
         curClientX: clientX,
         curClientY: clientY,
+        lastClientX: clientX,
+        lastClientY: clientY,
+        lastTx: 0,
+        lastTy: 0,
+        lastRatio: 1,
+        availLeft,
+        availTop,
+        availWidth,
+        availHeight,
+        centerVertical: !viewMode.includes("continuous"),
         basePreviewRect,
-        localOriginX: clientX - basePreviewRect.left,
-        localOriginY: clientY - basePreviewRect.top,
         scrollEl,
         previewEl,
         wheelTimer: null,
@@ -1507,7 +1611,7 @@ export default function PdfReader({
           existing.wheelTimer = null
         }
         existing.startDist = dist
-        existing.baseZoom = existing.currentScale
+        existing.touchAnchorZoom = existing.currentScale
         existing.curClientX = midX
         existing.curClientY = midY
         return
@@ -1553,7 +1657,7 @@ export default function PdfReader({
 
       state.curClientX = (t1.clientX + t2.clientX) / 2
       state.curClientY = (t1.clientY + t2.clientY) / 2
-      const nextScale = (dist / state.startDist) * state.baseZoom
+      const nextScale = (dist / state.startDist) * state.touchAnchorZoom
       state.currentScale = Math.max(10, Math.min(500, nextScale))
 
       schedulePinchFrame()
@@ -1607,7 +1711,7 @@ export default function PdfReader({
       if (e.cancelable) e.preventDefault()
       state.curClientX = pair.midX
       state.curClientY = pair.midY
-      const nextScale = (pair.dist / state.startDist) * state.baseZoom
+      const nextScale = (pair.dist / state.startDist) * state.touchAnchorZoom
       state.currentScale = Math.max(10, Math.min(500, nextScale))
       schedulePinchFrame()
     }
@@ -1689,7 +1793,7 @@ export default function PdfReader({
         pinchStateRef.current = null
       }
     }
-  }, [viewMode, getZoomElements, showZoomHud])
+  }, [viewMode, getZoomElements, showZoomHud, applyPinchTransformToDom])
 
   function rotate() {
     set({ rotation: (rotation + 90) % 360 })
@@ -3217,18 +3321,12 @@ export default function PdfReader({
               ref={canvasContainerRef}
               className={`flex-1 min-w-0 min-h-0 relative ${
                 viewMode.includes("continuous")
-                  ? "overflow-hidden px-0"
-                  : `overflow-auto flex items-center justify-center px-4`
-              } ${isFullscreen ? "no-scrollbar" : ""} py-0`}
+                  ? "overflow-hidden"
+                  : "overflow-auto"
+              } ${isFullscreen ? "no-scrollbar" : ""}`}
               style={{
                 marginLeft: panelW,
                 transition: "margin-left 250ms cubic-bezier(0.22, 1, 0.36, 1)",
-                ...(viewMode.includes("continuous")
-                  ? {}
-                  : {
-                      justifyContent: "safe center",
-                      alignItems: "safe center",
-                    }),
               }}
               onClick={() => {
                 closeAllMenus()
@@ -3255,12 +3353,23 @@ export default function PdfReader({
                     isFullscreen={isProReaderMode || isFullscreen}
                   />
                 </div>
-              ) : viewMode === "two-page" ? (
+              ) : (
                 <div
-                  ref={previewWrapperRef}
-                  key={`two-${doc.id}-${page}`}
-                  className="min-w-full min-h-full shrink-0 m-auto flex items-center justify-center p-4"
+                  className="min-w-full min-h-full flex items-center justify-center p-4"
+                  style={{
+                    width: "max-content",
+                    height: "max-content",
+                    justifyContent: "safe center",
+                    alignItems: "safe center",
+                    overflow: "clip",
+                  }}
                 >
+                  {viewMode === "two-page" ? (
+                    <div
+                      ref={previewWrapperRef}
+                      key={`two-${doc.id}-${page}`}
+                      className="w-fit h-fit shrink-0 flex items-center justify-center p-0"
+                    >
                   <div className="flex gap-4 page-fade">
                     <PageCard
                       docId={doc.id}
@@ -3301,28 +3410,30 @@ export default function PdfReader({
                     )}
                   </div>
                 </div>
-              ) : (
-                <div
-                  ref={previewWrapperRef}
-                  key={`single-${doc.id}-${page}`}
-                  className="min-w-full min-h-full shrink-0 m-auto flex items-center justify-center p-4"
-                >
-                  <div className="page-fade">
-                    <PageCard
-                      docId={doc.id}
-                      index={page - 1}
-                      zoom={zoom}
-                      rotation={rotation}
-                      isCurrent={true}
-                      activeTool={activeTool}
-                      onTextSelection={handleTextSelection}
-                      activeSelection={
-                        textSelection?.page === page ? textSelection : null
-                      }
-                      searchMatches={searchMatches}
-                      activeMatch={activeMatch}
-                    />
-                  </div>
+                  ) : (
+                    <div
+                      ref={previewWrapperRef}
+                      key={`single-${doc.id}-${page}`}
+                      className="w-fit h-fit shrink-0 flex items-center justify-center p-0"
+                    >
+                      <div className="page-fade">
+                        <PageCard
+                          docId={doc.id}
+                          index={page - 1}
+                          zoom={zoom}
+                          rotation={rotation}
+                          isCurrent={true}
+                          activeTool={activeTool}
+                          onTextSelection={handleTextSelection}
+                          activeSelection={
+                            textSelection?.page === page ? textSelection : null
+                          }
+                          searchMatches={searchMatches}
+                          activeMatch={activeMatch}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
