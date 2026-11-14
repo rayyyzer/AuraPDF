@@ -166,7 +166,7 @@ export async function printPages(
     const canvas = document.createElement("canvas")
     canvas.width = width
     canvas.height = height
-    const context = canvas.getContext("2d")
+    const context = canvas.getContext("2d", { alpha: false })
     if (!context) continue
     const pixels = new Uint8ClampedArray(
       bytes.buffer,

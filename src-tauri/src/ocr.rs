@@ -977,6 +977,8 @@ fn render_page_bgra(
     let page_width = page.width().value;
     let page_height = page.height().value;
     let render_config = PdfRenderConfig::new()
+        .set_format(PdfBitmapFormat::BGRA)
+        .set_reverse_byte_order(false)
         .scale_page_by_factor(scale)
         .set_clear_color(PdfColor::WHITE);
     let bitmap = page
@@ -1015,6 +1017,8 @@ pub async fn pdf_ocr_page_direct(
             let max_pt = page_width.max(page_height).max(1.0);
             let scale = (2200.0 / max_pt).clamp(1.0, 3.0).min(2400.0 / max_pt);
             let render_config = PdfRenderConfig::new()
+                .set_format(PdfBitmapFormat::BGRA)
+                .set_reverse_byte_order(false)
                 .scale_page_by_factor(scale)
                 .set_clear_color(PdfColor::WHITE);
             let bitmap = page

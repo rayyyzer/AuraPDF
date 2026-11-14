@@ -124,7 +124,7 @@ export const PageThumbnail = memo(function PageThumbnail({
         )
         const image = new ImageData(pixels as any, w, h)
 
-        const ctx = canvas.getContext("2d")
+        const ctx = canvas.getContext("2d", { alpha: false })
 
         ctx?.putImageData(image, 0, 0)
 

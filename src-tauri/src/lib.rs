@@ -49,6 +49,14 @@ fn backup_database(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn get_db_url() -> Option<String> {
+    std::env::var("AURAPDF_DB_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
@@ -86,6 +94,7 @@ pub fn run() {
             launch::pdf_inspect_path,
             win_assoc::pdf_register_file_association,
             win_assoc::pdf_open_default_apps_settings,
+            get_db_url,
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, WindowEvent::Destroyed) {
@@ -123,9 +132,13 @@ pub fn run() {
             // Start single-instance IPC listener so subsequent PDF launches reuse this window
             single_instance::start_primary_instance_listener(app.handle().clone());
 
+            let isolated_profile = get_db_url().is_some();
+
             // Ensure non-intrusive per-user Windows Open With & Default Apps registration
-            if let Err(err) = win_assoc::ensure_current_exe_registered() {
-                log::warn!("[WIN_ASSOC] Could not register file association: {}", err);
+            if !isolated_profile {
+                if let Err(err) = win_assoc::ensure_current_exe_registered() {
+                    log::warn!("[WIN_ASSOC] Could not register file association: {}", err);
+                }
             }
 
             if let Some(window) = app.get_webview_window("main") {
@@ -134,7 +147,9 @@ pub fn run() {
                 }
                 let _ = window.set_fullscreen(true);
             }
-            backup_database(app.handle());
+            if !isolated_profile {
+                backup_database(app.handle());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

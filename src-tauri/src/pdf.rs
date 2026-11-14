@@ -186,6 +186,55 @@ pub async fn pdf_get_page_meta(id: String, page_index: u16) -> Result<PageMeta, 
     .unwrap_or_else(|e| Err(format!("Task failed: {}", e)))
 }
 
+fn build_page_render_config(scale: f32, rotation: i32) -> PdfRenderConfig {
+    let render_config = PdfRenderConfig::new()
+        // Render into opaque BGRx so semi-transparent logos and soft masks composite
+        // cleanly onto white paper without leaving partial destination alpha, while
+        // keeping PDFium's default FPDF_REVERSE_BYTE_ORDER enabled for native RGBA output.
+        .set_format(PdfBitmapFormat::BGRx)
+        .scale_page_by_factor(scale)
+        .set_clear_color(PdfColor::WHITE);
+
+    match rotation {
+        90 => render_config.rotate(PdfPageRenderRotation::Degrees90, true),
+        180 => render_config.rotate(PdfPageRenderRotation::Degrees180, true),
+        270 => render_config.rotate(PdfPageRenderRotation::Degrees270, true),
+        _ => render_config,
+    }
+}
+
+fn copy_bitmap_to_payload(bitmap: &PdfBitmap<'_>) -> Vec<u8> {
+    let bmp_width = bitmap.width() as u32;
+    let bmp_height = bitmap.height() as u32;
+    let expected_len = (bmp_width as usize) * (bmp_height as usize) * 4;
+    let raw = bitmap.as_raw_bytes();
+
+    if raw.len() == expected_len {
+        let mut bytes = vec![0u8; 8 + expected_len];
+        bytes[0..4].copy_from_slice(&bmp_width.to_le_bytes());
+        bytes[4..8].copy_from_slice(&bmp_height.to_le_bytes());
+        bytes[8..].copy_from_slice(&raw);
+        bytes
+    } else {
+        // Fallback when row stride differs from width * 4; as_rgba_bytes normalizes
+        // both stride padding and reverse byte order into packed RGBA.
+        let rgba = bitmap.as_rgba_bytes();
+        let mut bytes = vec![0u8; 8 + rgba.len()];
+        bytes[0..4].copy_from_slice(&bmp_width.to_le_bytes());
+        bytes[4..8].copy_from_slice(&bmp_height.to_le_bytes());
+        bytes[8..].copy_from_slice(&rgba);
+        bytes
+    }
+}
+
+fn finalize_rgba_payload(bytes: &mut [u8]) {
+    // Enforce opaque paper alpha so semi-transparent logos and soft masks never
+    // bleed dark backdrop colors into 2D canvases or JPEG print exports.
+    for chunk in bytes[8..].chunks_exact_mut(4) {
+        chunk[3] = 255;
+    }
+}
+
 #[tauri::command]
 pub async fn pdf_render_page(
     id: String,
@@ -219,16 +268,7 @@ pub async fn pdf_render_page(
             ));
         }
 
-        let render_config = PdfRenderConfig::new()
-            .scale_page_by_factor(scale)
-            .set_clear_color(PdfColor::WHITE);
-
-        let config_with_rot = match rotation {
-            90 => render_config.rotate(PdfPageRenderRotation::Degrees90, true),
-            180 => render_config.rotate(PdfPageRenderRotation::Degrees180, true),
-            270 => render_config.rotate(PdfPageRenderRotation::Degrees270, true),
-            _ => render_config,
-        };
+        let config_with_rot = build_page_render_config(scale, rotation);
 
         let t_pre_render = std::time::Instant::now();
         let bitmap = page
@@ -237,24 +277,12 @@ pub async fn pdf_render_page(
         let t_render = t_pre_render.elapsed();
 
         let t_pre_conv = std::time::Instant::now();
-        let bmp_width = bitmap.width() as u32;
-        let bmp_height = bitmap.height() as u32;
-
-        // Single-allocation zero-copy output buffer
-        let raw = bitmap.as_raw_bytes();
-        let raw_len = raw.len();
-        let mut bytes = vec![0u8; 8 + raw_len];
-        bytes[0..4].copy_from_slice(&bmp_width.to_le_bytes());
-        bytes[4..8].copy_from_slice(&bmp_height.to_le_bytes());
-        bytes[8..].copy_from_slice(&raw);
+        let mut bytes = copy_bitmap_to_payload(&bitmap);
 
         // Drop the PDFium lock immediately so other threads can render concurrently
         drop(docs);
 
-        // Swizzle BGRA to RGBA in-place inside output buffer
-        for chunk in bytes[8..].chunks_exact_mut(4) {
-            chunk.swap(0, 2);
-        }
+        finalize_rgba_payload(&mut bytes);
         let t_conv = t_pre_conv.elapsed();
 
         log::debug!(
@@ -423,8 +451,23 @@ pub async fn pdf_search_document(id: String, query: String) -> Result<Vec<Search
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    pub(crate) fn shared_test_pdfium() -> MutexGuard<'static, Pdfium> {
+        static TEST_PDFIUM: OnceLock<Mutex<Pdfium>> = OnceLock::new();
+        let mutex = TEST_PDFIUM.get_or_init(|| {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bin");
+            let path_string = path.to_string_lossy().to_string();
+            let bindings = Pdfium::bind_to_library(
+                Pdfium::pdfium_platform_library_name_at_path(&path_string),
+            )
+            .expect("pdfium.dll must be available in src-tauri/bin");
+            Mutex::new(Pdfium::new(bindings))
+        });
+        mutex.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     #[test]
     fn test_render_page_scale_validation() {
@@ -450,5 +493,89 @@ mod tests {
                 Ok(_) => panic!("Expected error for oversized scale"),
             }
         });
+    }
+
+    #[test]
+    fn render_preserves_rgb_channels_and_flattens_transparency() {
+        let pdfium = shared_test_pdfium();
+        let mut doc = pdfium.create_new_pdf().expect("create new pdf");
+        let mut page = doc
+            .pages_mut()
+            .create_page_at_start(PdfPagePaperSize::Custom(
+                PdfPoints::new(300.0),
+                PdfPoints::new(300.0),
+            ))
+            .expect("create page");
+
+        // Solid Red square on the left (x: 20..80, y: 180..240)
+        page.objects_mut()
+            .create_path_object_rect(
+                PdfRect::new_from_values(180.0, 20.0, 240.0, 80.0),
+                None,
+                None,
+                Some(PdfColor::new(255, 0, 0, 255)),
+            )
+            .expect("red rect");
+
+        // Solid Blue square in the middle (x: 110..170, y: 180..240)
+        page.objects_mut()
+            .create_path_object_rect(
+                PdfRect::new_from_values(180.0, 110.0, 240.0, 170.0),
+                None,
+                None,
+                Some(PdfColor::new(0, 0, 255, 255)),
+            )
+            .expect("blue rect");
+
+        // Semi-transparent Blue square on the right (x: 200..260, y: 180..240)
+        page.objects_mut()
+            .create_path_object_rect(
+                PdfRect::new_from_values(180.0, 200.0, 240.0, 260.0),
+                None,
+                None,
+                Some(PdfColor::new(0, 80, 255, 128)),
+            )
+            .expect("semi-transparent blue rect");
+
+        // Regenerate content stream and re-load saved PDF so PDFium renders exact saved graphics
+        let pdf_bytes = doc.save_to_bytes().expect("save test pdf");
+        let loaded = pdfium
+            .load_pdf_from_byte_vec(pdf_bytes, None)
+            .expect("reload test pdf");
+        let rendered_page = loaded.pages().get(0).expect("page 0");
+
+        let config = build_page_render_config(1.0, 0);
+        let bitmap = rendered_page
+            .render_with_config(&config)
+            .expect("render bitmap");
+        let mut payload = copy_bitmap_to_payload(&bitmap);
+        finalize_rgba_payload(&mut payload);
+
+        let w = u32::from_le_bytes(payload[0..4].try_into().unwrap()) as usize;
+        let h = u32::from_le_bytes(payload[4..8].try_into().unwrap()) as usize;
+        assert_eq!((w, h), (300, 300));
+        let pixels = &payload[8..];
+
+        let pixel_at = |px: usize, py_from_top: usize| -> [u8; 4] {
+            let idx = (py_from_top * w + px) * 4;
+            [pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3]]
+        };
+
+        // PDF Y=180..240 on 300pt page maps to top-down Y=60..120
+        let red = pixel_at(50, 90);
+        assert_eq!(red, [255, 0, 0, 255], "Red square must stay pure Red in RGBA");
+
+        let blue = pixel_at(140, 90);
+        assert_eq!(blue, [0, 0, 255, 255], "Blue square must stay pure Blue in RGBA");
+
+        let semi = pixel_at(230, 90);
+        assert_eq!(semi[3], 255, "Semi-transparent graphic must have opaque white-composited alpha");
+        assert!(
+            semi[2] > 230 && semi[0] > 90 && semi[0] < 160,
+            "Semi-transparent blue over white should blend cleanly without channel swap: got {semi:?}"
+        );
+
+        let bg = pixel_at(10, 10);
+        assert_eq!(bg, [255, 255, 255, 255], "Background must be solid white");
     }
 }

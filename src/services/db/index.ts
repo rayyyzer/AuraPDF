@@ -53,8 +53,14 @@ export function getDb(): Promise<Database | null> {
 
   const p = (async () => {
     try {
-      const Database = (await import("@tauri-apps/plugin-sql")).default
-      const db = await Database.load("sqlite:aurapdf.db")
+      const [{ default: Database }, { invoke }] = await Promise.all([
+        import("@tauri-apps/plugin-sql"),
+        import("@tauri-apps/api/core"),
+      ])
+      const customUrl = await invoke<string | null>("get_db_url").catch(
+        () => null,
+      )
+      const db = await Database.load(customUrl || "sqlite:aurapdf.db")
       try {
         await db.execute("PRAGMA journal_mode = WAL;")
         await db.execute("PRAGMA synchronous = NORMAL;")

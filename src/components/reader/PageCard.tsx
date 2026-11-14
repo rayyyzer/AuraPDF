@@ -200,7 +200,17 @@ export const PageCard = memo(function PageCard({
     const abortController = new AbortController()
     renderTaskRef.current = { cancel: () => abortController.abort() }
 
-    const scale = (zoom / 100) * dpr
+    // Clamp raster scale inside PDFium's safe 15 MP / 9.75x pixel budget so 400-500% zoom
+    // on HiDPI displays or oversized sheets never triggers backend dimension errors.
+    const rawScale = (zoom / 100) * dpr
+    const basePageW = Math.max(1, viewport.width / Math.max(0.1, zoom / 100))
+    const basePageH = Math.max(1, viewport.height / Math.max(0.1, zoom / 100))
+    const maxScaleByPixels = Math.sqrt(15_000_000 / (basePageW * basePageH))
+    const maxScaleByDim = 15_360 / Math.max(basePageW, basePageH)
+    const scale = Math.max(
+      0.05,
+      Math.min(rawScale, 9.75, maxScaleByPixels, maxScaleByDim),
+    )
 
     void NativePdfEngine.renderPage(
       docId,
@@ -747,7 +757,7 @@ export const PageCard = memo(function PageCard({
         style={{ width: viewport.width, height: viewport.height }}
         data-annotation-surface="true"
         data-active-tool={activeTool || "select"}
-        className={`annotation-surface bg-white overflow-hidden relative flex flex-col rounded-[2px] transition-all duration-200 ${
+        className={`annotation-surface bg-white overflow-hidden relative flex flex-col rounded-[2px] transition-[box-shadow,ring-color] duration-200 ${
           isCurrent
             ? "shadow-[0_12px_44px_-10px_rgba(0,0,0,0.85),0_4px_16px_rgba(0,0,0,0.6)] ring-1 ring-white/15"
             : "shadow-[0_8px_32px_-8px_rgba(0,0,0,0.7),0_2px_8px_rgba(0,0,0,0.5)] ring-1 ring-white/10"

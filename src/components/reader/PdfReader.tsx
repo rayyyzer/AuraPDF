@@ -235,27 +235,43 @@ export default function PdfReader({
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   const previewWrapperRef = useRef<HTMLDivElement>(null)
-  const pendingScrollRef = useRef<{
-    container: HTMLDivElement
-    targetScrollLeft: number
-    targetScrollTop: number
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  const activeZoomAnimRef = useRef<Animation | null>(null)
+  const pinchHudRef = useRef<HTMLDivElement>(null)
+  const pinchHudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingZoomAnchorRef = useRef<{
+    scrollEl: HTMLElement
+    previewEl: HTMLElement
+    pageIndex: number | null
+    u: number
+    v: number
+    focalClientX: number
+    focalClientY: number
+    beforeAnchorScreenX: number
+    beforeAnchorScreenY: number
+    prevZoom: number
+    animateFlip: boolean
+    clearPinchTransform: boolean
   } | null>(null)
   const targetZoomRef = useRef(zoom)
   const pinchStateRef = useRef<{
     active: boolean
     baseZoom: number
     currentScale: number
-    focalPoint: { clientX: number; clientY: number }
-    focalX: number
-    focalY: number
-    contentFocalX: number
-    contentFocalY: number
+    startClientX: number
+    startClientY: number
+    curClientX: number
+    curClientY: number
+    basePreviewRect: DOMRect
+    localOriginX: number
+    localOriginY: number
     scrollEl: HTMLElement
     previewEl: HTMLElement
     wheelTimer: ReturnType<typeof setTimeout> | null
     rafId: number | null
+    startDist: number
   } | null>(null)
-  const touchDistRef = useRef(0)
 
   const searchTimeoutRef = useRef<any>(null)
   const [searchMatches, setSearchMatches] = useState<any[]>([])
@@ -860,11 +876,12 @@ export default function PdfReader({
   async function handleFit(
     mode: "page" | "width" | "actual",
     isResize = false,
+    showHud = true,
   ): Promise<boolean> {
     if (!doc?.id) return false
     if (!isResize) setFitMode(mode)
     if (mode === "actual") {
-      setZoom(100)
+      setZoom(100, false, showHud)
       return true
     }
     if (
@@ -893,7 +910,7 @@ export default function PdfReader({
       const scaleW = availW / pageW
       nextZoom = Math.max(10, Math.floor(scaleW * 100))
     }
-    setZoom(nextZoom)
+    setZoom(nextZoom, true, showHud)
     return true
   }
 
@@ -915,7 +932,7 @@ export default function PdfReader({
         return
       fitting = true
       try {
-        const fitted = await handleFit(requestedMode)
+        const fitted = await handleFit(requestedMode, false, false)
         if (!fitted || !active || generation !== initGenerationRef.current)
           return
       } catch (error) {
@@ -998,6 +1015,75 @@ export default function PdfReader({
     handleNavigation(n)
   }
 
+  const showZoomHud = useCallback((pct: number, persistMs = 650) => {
+    const hud = pinchHudRef.current
+    if (!hud) return
+    hud.textContent = `${Math.round(pct)}%`
+    hud.classList.remove("opacity-0", "scale-95")
+    hud.classList.add("opacity-100", "scale-100")
+    if (pinchHudTimerRef.current) clearTimeout(pinchHudTimerRef.current)
+    pinchHudTimerRef.current = setTimeout(() => {
+      pinchHudTimerRef.current = null
+      const el = pinchHudRef.current
+      if (!el) return
+      el.classList.remove("opacity-100", "scale-100")
+      el.classList.add("opacity-0", "scale-95")
+    }, persistMs)
+  }, [])
+
+  const findAnchorTarget = useCallback(
+    (
+      scrollEl: HTMLElement,
+      previewEl: HTMLElement,
+      clientX: number,
+      clientY: number,
+    ): { el: HTMLElement; pageIndex: number | null } => {
+      const candidates = Array.from(
+        scrollEl.querySelectorAll<HTMLElement>("[data-page-index]"),
+      )
+      if (candidates.length === 0) return { el: previewEl, pageIndex: null }
+
+      let bestEl = candidates[0]
+      let bestDist = Infinity
+      for (const candidate of candidates) {
+        const r = candidate.getBoundingClientRect()
+        const dx =
+          clientX < r.left ? r.left - clientX : clientX > r.right ? clientX - r.right : 0
+        const dy =
+          clientY < r.top ? r.top - clientY : clientY > r.bottom ? clientY - r.bottom : 0
+        const dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+          bestDist = dist
+          bestEl = candidate
+          if (dist === 0) break
+        }
+      }
+      const rawIdx = bestEl.getAttribute("data-page-index")
+      const parsedIdx = rawIdx !== null ? Number(rawIdx) : NaN
+      return {
+        el: bestEl,
+        pageIndex: Number.isFinite(parsedIdx) ? parsedIdx : null,
+      }
+    },
+    [],
+  )
+
+  const getZoomElements = useCallback((): {
+    scrollEl: HTMLElement | null
+    previewEl: HTMLElement | null
+  } => {
+    if (viewMode.includes("continuous")) {
+      return {
+        scrollEl: continuousViewRef.current?.getScrollElement() ?? null,
+        previewEl: continuousViewRef.current?.getPreviewElement() ?? null,
+      }
+    }
+    return {
+      scrollEl: canvasContainerRef.current,
+      previewEl: previewWrapperRef.current,
+    }
+  }, [viewMode])
+
   const commitPinchZoom = useCallback(() => {
     const state = pinchStateRef.current
     if (!state || !state.active) return
@@ -1015,221 +1101,341 @@ export default function PdfReader({
       10,
       Math.min(500, Math.round(state.currentScale)),
     )
-    const {
-      previewEl,
-      scrollEl,
-      contentFocalX,
-      contentFocalY,
-      focalX,
-      focalY,
-      baseZoom,
-    } = state
-
-    // Reset preview transform styles cleanly
-    previewEl.style.transform = ""
-    previewEl.style.transformOrigin = ""
-    previewEl.style.willChange = ""
-    previewEl.style.transition = ""
+    const { previewEl, scrollEl, curClientX, curClientY, baseZoom } = state
 
     state.active = false
     pinchStateRef.current = null
 
-    if (finalZoom === baseZoom) return
+    if (finalZoom === baseZoom) {
+      previewEl.style.transform = ""
+      previewEl.style.transformOrigin = ""
+      previewEl.style.transition = ""
+      showZoomHud(baseZoom, 350)
+      return
+    }
 
-    const ratio = finalZoom / baseZoom
-    const targetScrollLeft = Math.max(
-      0,
-      Math.round(contentFocalX * ratio - focalX),
-    )
-    const targetScrollTop = Math.max(
-      0,
-      Math.round(contentFocalY * ratio - focalY),
-    )
+    // Measure anchor from the live scaled DOM BEFORE React re-renders so there is zero
+    // 1-frame snap-back flash; transform stays until useLayoutEffect commits finalZoom.
+    const anchor = findAnchorTarget(scrollEl, previewEl, curClientX, curClientY)
+    const elRect = anchor.el.getBoundingClientRect()
+    const u =
+      elRect.width > 0 ? (curClientX - elRect.left) / elRect.width : 0.5
+    const v =
+      elRect.height > 0 ? (curClientY - elRect.top) / elRect.height : 0.5
 
-    pendingScrollRef.current = {
-      container: scrollEl as HTMLDivElement,
-      targetScrollLeft,
-      targetScrollTop,
+    pendingZoomAnchorRef.current = {
+      scrollEl,
+      previewEl,
+      pageIndex: anchor.pageIndex,
+      u,
+      v,
+      focalClientX: curClientX,
+      focalClientY: curClientY,
+      beforeAnchorScreenX: curClientX,
+      beforeAnchorScreenY: curClientY,
+      prevZoom: baseZoom,
+      animateFlip: false,
+      clearPinchTransform: true,
     }
 
     setFitMode("manual")
     targetZoomRef.current = finalZoom
+    showZoomHud(finalZoom, 550)
     set({ zoom: finalZoom })
-  }, [set])
+  }, [set, findAnchorTarget, showZoomHud])
 
   const applyAnchoredZoom = useCallback(
-    (targetZoom: number, focalPoint?: { clientX: number; clientY: number }) => {
+    (
+      targetZoom: number,
+      focalPoint?: { clientX: number; clientY: number },
+      preserveFitMode = false,
+      showHud = true,
+    ) => {
       const nextZoom = Math.max(10, Math.min(500, Math.round(targetZoom)))
-      if (nextZoom === zoom) return
+      if (nextZoom === zoomRef.current) return
 
-      const scrollEl = viewMode.includes("continuous")
-        ? (continuousViewRef.current?.getScrollElement() ?? null)
-        : canvasContainerRef.current
+      // Clean up any in-flight pinch preview before applying discrete zoom
+      if (pinchStateRef.current?.active) {
+        const s = pinchStateRef.current
+        if (s.wheelTimer) clearTimeout(s.wheelTimer)
+        if (s.rafId !== null) cancelAnimationFrame(s.rafId)
+        s.previewEl.style.transform = ""
+        s.previewEl.style.transformOrigin = ""
+        s.previewEl.style.transition = ""
+        pinchStateRef.current = null
+      }
 
-      if (scrollEl && focalPoint) {
-        const rect = scrollEl.getBoundingClientRect()
-        const anchorX = focalPoint.clientX - rect.left
-        const anchorY = focalPoint.clientY - rect.top
+      if (activeZoomAnimRef.current) {
+        activeZoomAnimRef.current.cancel()
+        activeZoomAnimRef.current = null
+      }
 
-        const currentContentX = scrollEl.scrollLeft + anchorX
-        const currentContentY = scrollEl.scrollTop + anchorY
+      const { scrollEl, previewEl } = getZoomElements()
+      if (scrollEl && previewEl) {
+        const scrollRect = scrollEl.getBoundingClientRect()
+        const focalX =
+          focalPoint?.clientX ?? scrollRect.left + scrollRect.width / 2
+        const focalY =
+          focalPoint?.clientY ?? scrollRect.top + scrollRect.height / 2
+        const anchor = findAnchorTarget(scrollEl, previewEl, focalX, focalY)
+        const elRect = anchor.el.getBoundingClientRect()
+        const u = elRect.width > 0 ? (focalX - elRect.left) / elRect.width : 0.5
+        const v =
+          elRect.height > 0 ? (focalY - elRect.top) / elRect.height : 0.5
 
-        const ratio = nextZoom / zoom
-        const targetScrollLeft = Math.max(
-          0,
-          Math.round(currentContentX * ratio - anchorX),
-        )
-        const targetScrollTop = Math.max(
-          0,
-          Math.round(currentContentY * ratio - anchorY),
-        )
-
-        pendingScrollRef.current = {
-          container: scrollEl,
-          targetScrollLeft,
-          targetScrollTop,
+        pendingZoomAnchorRef.current = {
+          scrollEl,
+          previewEl,
+          pageIndex: anchor.pageIndex,
+          u,
+          v,
+          focalClientX: focalX,
+          focalClientY: focalY,
+          beforeAnchorScreenX: focalX,
+          beforeAnchorScreenY: focalY,
+          prevZoom: zoomRef.current,
+          animateFlip: true,
+          clearPinchTransform: false,
         }
       }
 
-      setFitMode("manual")
+      if (!preserveFitMode) setFitMode("manual")
       targetZoomRef.current = nextZoom
+      if (showHud) showZoomHud(nextZoom, 550)
       set({ zoom: nextZoom })
     },
-    [zoom, viewMode, set],
+    [getZoomElements, findAnchorTarget, set, showZoomHud],
   )
 
   function zoomIn() {
-    setFitMode("manual")
-    const step = zoom >= 200 ? 25 : 10
-    const next = Math.min(500, zoom + step)
-    const scrollEl = viewMode.includes("continuous")
-      ? (continuousViewRef.current?.getScrollElement() ?? null)
-      : canvasContainerRef.current
-    if (scrollEl) {
-      const rect = scrollEl.getBoundingClientRect()
-      applyAnchoredZoom(next, {
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      })
-    } else {
-      set({ zoom: next })
-    }
+    const cur = zoomRef.current
+    const step = cur >= 200 ? 25 : 10
+    applyAnchoredZoom(Math.min(500, cur + step))
   }
 
   function zoomOut() {
-    setFitMode("manual")
-    const step = zoom > 200 ? 25 : 10
-    const next = Math.max(10, zoom - step)
-    const scrollEl = viewMode.includes("continuous")
-      ? (continuousViewRef.current?.getScrollElement() ?? null)
-      : canvasContainerRef.current
-    if (scrollEl) {
-      const rect = scrollEl.getBoundingClientRect()
-      applyAnchoredZoom(next, {
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      })
-    } else {
-      set({ zoom: next })
-    }
+    const cur = zoomRef.current
+    const step = cur > 200 ? 25 : 10
+    applyAnchoredZoom(Math.max(10, cur - step))
   }
 
-  function setZoom(z: number) {
-    setFitMode("manual")
+  function setZoom(z: number, preserveFitMode = false, showHud = true) {
     const next = Math.max(10, Math.min(500, Math.round(z)))
-    const scrollEl = viewMode.includes("continuous")
-      ? (continuousViewRef.current?.getScrollElement() ?? null)
-      : canvasContainerRef.current
-    if (scrollEl) {
-      const rect = scrollEl.getBoundingClientRect()
-      applyAnchoredZoom(next, {
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      })
-    } else {
-      set({ zoom: next })
+    if (next === zoomRef.current) {
+      if (!preserveFitMode) setFitMode("manual")
+      return
     }
+    applyAnchoredZoom(next, undefined, preserveFitMode, showHud)
   }
 
   useLayoutEffect(() => {
-    if (pendingScrollRef.current) {
-      const { container, targetScrollLeft, targetScrollTop } =
-        pendingScrollRef.current
-      container.scrollLeft = targetScrollLeft
-      container.scrollTop = targetScrollTop
-      const frame = requestAnimationFrame(() => {
-        if (container) {
-          container.scrollLeft = targetScrollLeft
-          container.scrollTop = targetScrollTop
-        }
-      })
-      pendingScrollRef.current = null
-    
-  return () => cancelAnimationFrame(frame)
+    if (viewMode.includes("continuous")) {
+      continuousViewRef.current?.measureNow()
     }
-  }, [zoom])
+
+    const anchor = pendingZoomAnchorRef.current
+    if (!anchor) return
+    pendingZoomAnchorRef.current = null
+
+    const { scrollEl, previewEl } = anchor
+    if (anchor.clearPinchTransform) {
+      previewEl.style.transform = ""
+      previewEl.style.transformOrigin = ""
+      previewEl.style.transition = ""
+    }
+
+    const applyAnchorScroll = () => {
+      const targetEl =
+        anchor.pageIndex !== null
+          ? scrollEl.querySelector<HTMLElement>(
+              `[data-page-index="${anchor.pageIndex}"]`,
+            ) ?? previewEl
+          : previewEl
+      if (!targetEl) return null
+      const elRect = targetEl.getBoundingClientRect()
+      const desiredLeft = anchor.focalClientX - anchor.u * elRect.width
+      const desiredTop = anchor.focalClientY - anchor.v * elRect.height
+      const dx = elRect.left - desiredLeft
+      const dy = elRect.top - desiredTop
+      if (Math.abs(dx) > 0.5) {
+        scrollEl.scrollLeft = Math.max(0, scrollEl.scrollLeft + dx)
+      }
+      if (Math.abs(dy) > 0.5) {
+        scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop + dy)
+      }
+      return targetEl
+    }
+
+    const anchoredEl = applyAnchorScroll()
+
+    if (
+      anchor.animateFlip &&
+      anchoredEl &&
+      anchor.prevZoom > 0 &&
+      zoom > 0 &&
+      anchor.prevZoom !== zoom
+    ) {
+      const reducedMotion =
+        useAppStore.getState().reduceMotion ||
+        window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+      if (!reducedMotion && typeof previewEl.animate === "function") {
+        const afterElRect = anchoredEl.getBoundingClientRect()
+        const pRect = previewEl.getBoundingClientRect()
+        const invScale = Math.max(0.25, Math.min(4, anchor.prevZoom / zoom))
+        const afterX = afterElRect.left + anchor.u * afterElRect.width
+        const afterY = afterElRect.top + anchor.v * afterElRect.height
+        const localX = afterX - pRect.left
+        const localY = afterY - pRect.top
+        const tx =
+          anchor.beforeAnchorScreenX - afterX + (1 - invScale) * localX
+        const ty =
+          anchor.beforeAnchorScreenY - afterY + (1 - invScale) * localY
+
+        activeZoomAnimRef.current?.cancel()
+        const anim = previewEl.animate(
+          [
+            {
+              transformOrigin: "0 0",
+              transform: `translate3d(${tx}px, ${ty}px, 0) scale(${invScale})`,
+            },
+            {
+              transformOrigin: "0 0",
+              transform: "translate3d(0px, 0px, 0px) scale(1)",
+            },
+          ],
+          {
+            duration: 165,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          },
+        )
+        activeZoomAnimRef.current = anim
+        anim.onfinish = () => {
+          if (activeZoomAnimRef.current === anim) {
+            activeZoomAnimRef.current = null
+          }
+        }
+      }
+    }
+
+    if (anchor.clearPinchTransform && viewMode.includes("continuous")) {
+      const frame = requestAnimationFrame(() => {
+        applyAnchorScroll()
+      })
+      return () => cancelAnimationFrame(frame)
+    }
+  }, [zoom, viewMode])
 
   useEffect(() => {
     targetZoomRef.current = zoom
   }, [zoom])
 
   useEffect(() => {
+    return () => {
+      if (pinchHudTimerRef.current) {
+        clearTimeout(pinchHudTimerRef.current)
+        pinchHudTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const commitPinchZoomRef = useRef(commitPinchZoom)
+  commitPinchZoomRef.current = commitPinchZoom
+
+  useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
+    const schedulePinchFrame = () => {
+      const state = pinchStateRef.current
+      if (!state || !state.active) return
+      showZoomHud(state.currentScale, 450)
+      if (state.rafId !== null) return
+      state.rafId = requestAnimationFrame(() => {
+        const current = pinchStateRef.current
+        if (!current || !current.active) return
+        current.rafId = null
+        const ratio = current.currentScale / current.baseZoom
+        const tx =
+          current.curClientX -
+          current.basePreviewRect.left -
+          ratio * current.localOriginX
+        const ty =
+          current.curClientY -
+          current.basePreviewRect.top -
+          ratio * current.localOriginY
+        current.previewEl.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${ratio})`
+      })
+    }
+
+    const startPinchSession = (
+      clientX: number,
+      clientY: number,
+      startDist = 0,
+    ) => {
+      const { scrollEl, previewEl } = getZoomElements()
+      if (!scrollEl || !previewEl) return null
+
+      if (activeZoomAnimRef.current) {
+        activeZoomAnimRef.current.cancel()
+        activeZoomAnimRef.current = null
+      }
+
+      const basePreviewRect = previewEl.getBoundingClientRect()
+      previewEl.style.transformOrigin = "0 0"
+      previewEl.style.transition = "none"
+
+      const state = {
+        active: true,
+        baseZoom: zoomRef.current > 0 ? zoomRef.current : 100,
+        currentScale: zoomRef.current > 0 ? zoomRef.current : 100,
+        startClientX: clientX,
+        startClientY: clientY,
+        curClientX: clientX,
+        curClientY: clientY,
+        basePreviewRect,
+        localOriginX: clientX - basePreviewRect.left,
+        localOriginY: clientY - basePreviewRect.top,
+        scrollEl,
+        previewEl,
+        wheelTimer: null,
+        rafId: null,
+        startDist,
+      }
+      pinchStateRef.current = state
+      return state
+    }
+
     const handleWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return
+      if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       e.stopPropagation()
 
       const target = e.target as HTMLElement | null
       if (
         target?.closest("[data-reader-sidebar]") ||
-        target?.closest("[data-menu-container]")
+        target?.closest("[data-menu-container]") ||
+        target?.closest("[data-selection-popover]")
       ) {
         return
       }
 
-      const scrollEl = viewMode.includes("continuous")
-        ? continuousViewRef.current?.getScrollElement()
-        : canvasContainerRef.current
-      const previewEl = viewMode.includes("continuous")
-        ? continuousViewRef.current?.getPreviewElement()
-        : previewWrapperRef.current
-
-      if (!scrollEl || !previewEl) return
-
       let state = pinchStateRef.current
       if (!state || !state.active) {
-        const rect = scrollEl.getBoundingClientRect()
-        const focalX = e.clientX - rect.left
-        const focalY = e.clientY - rect.top
-        const contentFocalX = scrollEl.scrollLeft + focalX
-        const contentFocalY = scrollEl.scrollTop + focalY
-
-        state = {
-          active: true,
-          baseZoom: zoom,
-          currentScale: zoom,
-          focalPoint: { clientX: e.clientX, clientY: e.clientY },
-          focalX,
-          focalY,
-          contentFocalX,
-          contentFocalY,
-          scrollEl,
-          previewEl,
-          wheelTimer: null,
-          rafId: null,
-        }
-        pinchStateRef.current = state
-
-        previewEl.style.transformOrigin = `${contentFocalX}px ${contentFocalY}px`
-        previewEl.style.willChange = "transform"
-        previewEl.style.transition = "none"
+        state = startPinchSession(e.clientX, e.clientY, 0)
+        if (!state) return
+      } else {
+        state.curClientX = e.clientX
+        state.curClientY = e.clientY
       }
 
-      const clampedDelta = Math.max(-40, Math.min(40, e.deltaY))
-      const factor = Math.exp(-clampedDelta * 0.005)
+      const rawDelta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
+      const isDiscreteWheel = Math.abs(rawDelta) >= 40
+      const clamped = isDiscreteWheel
+        ? Math.sign(rawDelta) * Math.min(120, Math.abs(rawDelta))
+        : Math.max(-36, Math.min(36, rawDelta))
+      const sensitivity = isDiscreteWheel ? 0.0022 : 0.0085
+      const factor = Math.exp(-clamped * sensitivity)
+
       state.currentScale = Math.max(
         10,
         Math.min(500, state.currentScale * factor),
@@ -1237,33 +1443,14 @@ export default function PdfReader({
 
       if (state.wheelTimer) clearTimeout(state.wheelTimer)
       state.wheelTimer = setTimeout(() => {
-        commitPinchZoom()
-      }, 160)
+        commitPinchZoomRef.current()
+      }, 150)
 
-      if (state.rafId === null) {
-        state.rafId = requestAnimationFrame(() => {
-          if (pinchStateRef.current && pinchStateRef.current.active) {
-            pinchStateRef.current.rafId = null
-            const scaleRatio =
-              pinchStateRef.current.currentScale /
-              pinchStateRef.current.baseZoom
-            pinchStateRef.current.previewEl.style.transform = `scale(${scaleRatio})`
-          }
-        })
-      }
+      schedulePinchFrame()
     }
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        const scrollEl = viewMode.includes("continuous")
-          ? continuousViewRef.current?.getScrollElement()
-          : canvasContainerRef.current
-        const previewEl = viewMode.includes("continuous")
-          ? continuousViewRef.current?.getPreviewElement()
-          : previewWrapperRef.current
-
-        if (!scrollEl || !previewEl) return
-
         const [t1, t2] = [e.touches[0], e.touches[1]]
         const dist = Math.hypot(
           t2.clientX - t1.clientX,
@@ -1273,40 +1460,19 @@ export default function PdfReader({
 
         const midX = (t1.clientX + t2.clientX) / 2
         const midY = (t1.clientY + t2.clientY) / 2
-        const rect = scrollEl.getBoundingClientRect()
-        const focalX = midX - rect.left
-        const focalY = midY - rect.top
-        const contentFocalX = scrollEl.scrollLeft + focalX
-        const contentFocalY = scrollEl.scrollTop + focalY
-
-        touchDistRef.current = dist
-        pinchStateRef.current = {
-          active: true,
-          baseZoom: zoom,
-          currentScale: zoom,
-          focalPoint: { clientX: midX, clientY: midY },
-          focalX,
-          focalY,
-          contentFocalX,
-          contentFocalY,
-          scrollEl,
-          previewEl,
-          wheelTimer: null,
-          rafId: null,
+        if (pinchStateRef.current?.active) {
+          pinchStateRef.current.startDist = dist
+          pinchStateRef.current.curClientX = midX
+          pinchStateRef.current.curClientY = midY
+          return
         }
-
-        previewEl.style.transformOrigin = `${contentFocalX}px ${contentFocalY}px`
-        previewEl.style.willChange = "transform"
-        previewEl.style.transition = "none"
+        startPinchSession(midX, midY, dist)
       }
     }
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (
-        e.touches.length === 2 &&
-        pinchStateRef.current?.active &&
-        touchDistRef.current > 0
-      ) {
+      const state = pinchStateRef.current
+      if (e.touches.length === 2 && state?.active && state.startDist > 0) {
         e.preventDefault()
         const [t1, t2] = [e.touches[0], e.touches[1]]
         const dist = Math.hypot(
@@ -1315,28 +1481,18 @@ export default function PdfReader({
         )
         if (dist <= 0) return
 
-        const scale =
-          (dist / touchDistRef.current) * pinchStateRef.current.baseZoom
-        pinchStateRef.current.currentScale = Math.max(10, Math.min(500, scale))
+        state.curClientX = (t1.clientX + t2.clientX) / 2
+        state.curClientY = (t1.clientY + t2.clientY) / 2
+        const nextScale = (dist / state.startDist) * state.baseZoom
+        state.currentScale = Math.max(10, Math.min(500, nextScale))
 
-        if (pinchStateRef.current.rafId === null) {
-          pinchStateRef.current.rafId = requestAnimationFrame(() => {
-            if (pinchStateRef.current && pinchStateRef.current.active) {
-              pinchStateRef.current.rafId = null
-              const scaleRatio =
-                pinchStateRef.current.currentScale /
-                pinchStateRef.current.baseZoom
-              pinchStateRef.current.previewEl.style.transform = `scale(${scaleRatio})`
-            }
-          })
-        }
+        schedulePinchFrame()
       }
     }
 
     const handleTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2 && pinchStateRef.current?.active) {
-        commitPinchZoom()
-        touchDistRef.current = 0
+        commitPinchZoomRef.current()
       }
     }
 
@@ -1348,8 +1504,7 @@ export default function PdfReader({
     container.addEventListener("touchend", handleTouchEnd, { passive: true })
     container.addEventListener("touchcancel", handleTouchEnd, { passive: true })
 
-  
-  return () => {
+    return () => {
       container.removeEventListener("wheel", handleWheel)
       container.removeEventListener("touchstart", handleTouchStart)
       container.removeEventListener("touchmove", handleTouchMove)
@@ -1362,12 +1517,11 @@ export default function PdfReader({
           cancelAnimationFrame(pinchStateRef.current.rafId)
         pinchStateRef.current.previewEl.style.transform = ""
         pinchStateRef.current.previewEl.style.transformOrigin = ""
-        pinchStateRef.current.previewEl.style.willChange = ""
         pinchStateRef.current.previewEl.style.transition = ""
         pinchStateRef.current = null
       }
     }
-  }, [viewMode, zoom, commitPinchZoom])
+  }, [viewMode, getZoomElements, showZoomHud])
 
   function rotate() {
     set({ rotation: (rotation + 90) % 360 })
@@ -1491,7 +1645,7 @@ export default function PdfReader({
         const canvas = document.createElement("canvas")
         canvas.width = width
         canvas.height = height
-        const context = canvas.getContext("2d")
+        const context = canvas.getContext("2d", { alpha: false })
         if (!context) return null
         const pixels = new Uint8ClampedArray(
           bytes.buffer,
@@ -2889,18 +3043,20 @@ export default function PdfReader({
             {/* ── PDF CANVAS ──────────────────────────────────────── */}
             <div
               ref={canvasContainerRef}
-              className={`flex-1 overflow-auto flex ${
-                isFullscreen ? "no-scrollbar" : ""
-              } ${
+              className={`flex-1 relative ${
                 viewMode.includes("continuous")
-                  ? "flex-col items-center"
-                  : "items-center justify-center"
-              } px-4 py-0`}
+                  ? "overflow-hidden px-0"
+                  : `overflow-auto flex items-center justify-center px-4`
+              } ${isFullscreen ? "no-scrollbar" : ""} py-0`}
               style={{
                 marginLeft: panelW,
                 transition: "margin-left 250ms cubic-bezier(0.22, 1, 0.36, 1)",
-                justifyContent: "safe center",
-                alignItems: "safe center",
+                ...(viewMode.includes("continuous")
+                  ? {}
+                  : {
+                      justifyContent: "safe center",
+                      alignItems: "safe center",
+                    }),
               }}
               onClick={() => {
                 closeAllMenus()
@@ -2931,9 +3087,9 @@ export default function PdfReader({
                 <div
                   ref={previewWrapperRef}
                   key={`two-${doc.id}-${page}`}
-                  className="min-w-full min-h-full m-auto flex items-center justify-center p-4 page-fade"
+                  className="min-w-full min-h-full shrink-0 m-auto flex items-center justify-center p-4"
                 >
-                  <div className="flex gap-4">
+                  <div className="flex gap-4 page-fade">
                     <PageCard
                       docId={doc.id}
                       index={page - 1}
@@ -2977,22 +3133,24 @@ export default function PdfReader({
                 <div
                   ref={previewWrapperRef}
                   key={`single-${doc.id}-${page}`}
-                  className="min-w-full min-h-full m-auto flex items-center justify-center p-4 page-fade"
+                  className="min-w-full min-h-full shrink-0 m-auto flex items-center justify-center p-4"
                 >
-                  <PageCard
-                    docId={doc.id}
-                    index={page - 1}
-                    zoom={zoom}
-                    rotation={rotation}
-                    isCurrent={true}
-                    activeTool={activeTool}
-                    onTextSelection={handleTextSelection}
-                    activeSelection={
-                      textSelection?.page === page ? textSelection : null
-                    }
-                    searchMatches={searchMatches}
-                    activeMatch={activeMatch}
-                  />
+                  <div className="page-fade">
+                    <PageCard
+                      docId={doc.id}
+                      index={page - 1}
+                      zoom={zoom}
+                      rotation={rotation}
+                      isCurrent={true}
+                      activeTool={activeTool}
+                      onTextSelection={handleTextSelection}
+                      activeSelection={
+                        textSelection?.page === page ? textSelection : null
+                      }
+                      searchMatches={searchMatches}
+                      activeMatch={activeMatch}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -3442,6 +3600,13 @@ export default function PdfReader({
           </div>
         </div>
       )}
+
+      {/* Floating live pinch/zoom HUD pill */}
+      <div
+        ref={pinchHudRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed left-1/2 top-24 z-50 -translate-x-1/2 rounded-full border border-white/15 bg-card/90 px-3.5 py-1 text-xs font-semibold tabular-nums text-foreground shadow-xl backdrop-blur-md transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] opacity-0 scale-95"
+      />
 
       {/* Resume toast */}
       {resumeToast && (

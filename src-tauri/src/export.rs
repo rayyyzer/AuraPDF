@@ -379,14 +379,8 @@ mod tests {
         out.into_bytes()
     }
 
-    fn test_pdfium() -> Pdfium {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bin");
-        let path_string = path.to_string_lossy().to_string();
-        let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(
-            &path_string,
-        ))
-        .expect("pdfium.dll must be available in src-tauri/bin");
-        Pdfium::new(bindings)
+    fn test_pdfium() -> std::sync::MutexGuard<'static, Pdfium> {
+        crate::pdf::tests::shared_test_pdfium()
     }
 
     fn sample_annotations() -> Vec<ExportAnnotation> {

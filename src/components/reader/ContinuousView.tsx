@@ -1,6 +1,7 @@
 import {
   useRef,
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useMemo,
@@ -37,6 +38,7 @@ export interface ContinuousViewProps {
 
 export interface ContinuousViewRef {
   scrollToPage: (pageNumber: number, offset?: number) => void
+  measureNow: () => void
   getScrollElement: () => HTMLDivElement | null
   getPreviewElement: () => HTMLDivElement | null
 }
@@ -66,6 +68,7 @@ export const ContinuousView = memo(
       const parentRef = useRef<HTMLDivElement>(null)
       const contentRef = useRef<HTMLDivElement>(null)
       const [containerWidth, setContainerWidth] = useState(0)
+      const [maxPageBaseWidth, setMaxPageBaseWidth] = useState(520)
 
       useEffect(() => {
         if (!parentRef.current) return
@@ -89,6 +92,16 @@ export const ContinuousView = memo(
 
         return dimensionCache.get(doc.id)!
       }, [doc.id])
+
+      useEffect(() => {
+        const rotated = rotation === 90 || rotation === 270
+        let maxW = 520
+        for (const key of Object.keys(docCache)) {
+          const entry = docCache[Number(key)]
+          if (entry) maxW = Math.max(maxW, rotated ? entry.h : entry.w)
+        }
+        setMaxPageBaseWidth(maxW)
+      }, [docCache, rotation])
 
       const getPageZoom = useCallback(
         (pageIdx: number) => {
@@ -158,9 +171,11 @@ export const ContinuousView = memo(
         },
       })
 
-      useEffect(() => {
+      // Measure synchronously before paint so parent zoom scroll-anchoring sees accurate
+      // post-zoom row heights instead of clamping against stale scrollHeight.
+      useLayoutEffect(() => {
         rowVirtualizer.measure()
-      }, [zoom, rotation, fitMode, containerWidth])
+      }, [zoom, rotation, fitMode, containerWidth, twoPage, rowVirtualizer])
 
       const handleMeasure = useCallback(
         (index: number, baseW: number, baseH: number) => {
@@ -172,8 +187,11 @@ export const ContinuousView = memo(
           ) {
             docCache[index] = { w: baseW, h: baseH }
 
-            const rowPages = twoPage ? [index * 2, index * 2 + 1] : [index]
             const rotated = rotation === 90 || rotation === 270
+            const orientedW = rotated ? baseH : baseW
+            setMaxPageBaseWidth((prev) => (orientedW > prev ? orientedW : prev))
+
+            const rowPages = twoPage ? [index * 2, index * 2 + 1] : [index]
             const rowHeight = rowPages.reduce((maxHeight, pageIdx) => {
               const meta = docCache[pageIdx] ?? { w: 520, h: 720 }
               const pZoom = getPageZoom(pageIdx)
@@ -222,9 +240,23 @@ export const ContinuousView = memo(
             })
           }
         },
+        measureNow: () => rowVirtualizer.measure(),
         getScrollElement: () => parentRef.current,
         getPreviewElement: () => contentRef.current,
       }))
+
+      // Ensure horizontal scroll extents accommodate zoomed pages without clipping left edges.
+      const scaledRowWidth =
+        fitMode === "width" && containerWidth > 0
+          ? containerWidth
+          : Math.ceil(
+              (twoPage ? maxPageBaseWidth * 2 + 16 : maxPageBaseWidth) *
+                (zoom / 100),
+            ) + 32
+      const contentWidthStyle =
+        containerWidth > 0 && scaledRowWidth > containerWidth
+          ? `${scaledRowWidth}px`
+          : "100%"
 
       return (
         <div
@@ -232,18 +264,14 @@ export const ContinuousView = memo(
           className={`flex-1 overflow-auto w-full h-full relative ${
             isFullscreen ? "no-scrollbar" : ""
           }`}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "safe center",
-          }}
         >
           <div
             ref={contentRef}
             style={{
               height: `${rowVirtualizer.getTotalSize()}px`,
 
-              width: "100%",
+              width: contentWidthStyle,
+              minWidth: "100%",
 
               position: "relative",
             }}
