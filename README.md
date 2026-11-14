@@ -83,8 +83,8 @@ Crafted with typographic warmth inspired by modern editorial tools:
 
 Download the latest installer for Windows 10/11 (64-bit):
 
-* **[Download Setup (.exe)](https://github.com/rayyyzer/AuraPDF/releases/latest/download/AuraPDF_0.9.0_x64-setup.exe)** — Standalone NSIS installer (~20 MB)
-* **[Download Enterprise (.msi)](https://github.com/rayyyzer/AuraPDF/releases/latest/download/AuraPDF_0.9.0_x64_en-US.msi)** — WiX Windows Installer package (~27 MB)
+* **[Download Setup (.exe)](https://github.com/rayyyzer/AuraPDF/releases/latest/download/AuraPDF_1.0.0_x64-setup.exe)** — Standalone NSIS installer (~20 MB)
+* **[Download Enterprise (.msi)](https://github.com/rayyyzer/AuraPDF/releases/latest/download/AuraPDF_1.0.0_x64_en-US.msi)** — WiX Windows Installer package (~27 MB)
 
 > **Note on Windows SmartScreen**:  
 > AuraPDF is currently unsigned. If you see *"Windows protected your PC"* on first launch, click **More info → Run anyway**.
@@ -157,6 +157,7 @@ pnpm tauri dev
 pnpm typecheck
 pnpm test:rs
 pnpm test:selection
+pnpm test:zoom
 
 # 5. Build production installers
 pnpm tauri build

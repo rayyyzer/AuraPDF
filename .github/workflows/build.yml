@@ -46,6 +46,9 @@ jobs:
       - name: Selection text tests
         run: pnpm test:selection
 
+      - name: Zoom geometry tests
+        run: pnpm test:zoom
+
   installer:
     name: Installer
     needs: verify

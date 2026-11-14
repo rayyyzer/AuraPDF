@@ -69,6 +69,7 @@ export class NativePdfEngine {
     }
   }
   private static renderCache = new Map<string, Uint8Array>()
+  private static renderCacheBytes = 0
   private static readonly maxRenderCacheEntries = 10
   private static readonly maxRenderCacheBytes = 96 * 1024 * 1024
   private static activeRenders = 0
@@ -174,9 +175,13 @@ export class NativePdfEngine {
     for (const key of this.queuedRenders.keys()) {
       if (key.startsWith(`${id}|`)) this.queuedRenders.delete(key)
     }
-    for (const key of this.renderCache.keys()) {
-      if (key.startsWith(`${id}|`)) this.renderCache.delete(key)
+    for (const [key, bytes] of this.renderCache.entries()) {
+      if (key.startsWith(`${id}|`)) {
+        this.renderCacheBytes -= bytes.byteLength
+        this.renderCache.delete(key)
+      }
     }
+    if (this.renderCacheBytes < 0) this.renderCacheBytes = 0
     if (clearPersistedText) {
       try {
         await db.clearCachedPageText(id)
@@ -717,14 +722,20 @@ export class NativePdfEngine {
         },
         resolve: (bytes: Uint8Array) => {
           if ((this.documentGenerations.get(id) ?? 0) === generation && bytes.byteLength <= this.maxRenderCacheBytes) {
-            this.renderCache.set(key, bytes)
-            const cachedBytes = () =>
-              [...this.renderCache.values()].reduce((total, item) => total + item.byteLength, 0)
-            while (this.renderCache.size > this.maxRenderCacheEntries || cachedBytes() > this.maxRenderCacheBytes) {
-              const oldest = this.renderCache.keys().next().value
-              if (oldest) this.renderCache.delete(oldest)
-              else break
+            const existing = this.renderCache.get(key)
+            if (existing) {
+              this.renderCacheBytes -= existing.byteLength
+              this.renderCache.delete(key)
             }
+            this.renderCache.set(key, bytes)
+            this.renderCacheBytes += bytes.byteLength
+            while (this.renderCache.size > this.maxRenderCacheEntries || this.renderCacheBytes > this.maxRenderCacheBytes) {
+              const oldest = this.renderCache.entries().next().value as [string, Uint8Array] | undefined
+              if (!oldest) break
+              this.renderCache.delete(oldest[0])
+              this.renderCacheBytes -= oldest[1].byteLength
+            }
+            if (this.renderCacheBytes < 0) this.renderCacheBytes = 0
           }
           resolve(bytes)
         },

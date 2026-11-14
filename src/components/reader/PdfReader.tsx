@@ -2600,14 +2600,14 @@ export default function PdfReader({
         }`}
       >
         {/* ── TOP TOOLBAR ("Unit 4 COA bar") ─────────────────── */}
-        <div className="shrink-0 flex items-center h-10 px-3 gap-1.5 bg-card border-b border-border">
+        <div className="shrink-0 flex items-center h-11 px-3 gap-1.5 bg-card border-b border-border">
           {/* Left: back + title */}
           <button
             onClick={handleBackToLibrary}
-            className="flex items-center gap-1.5 px-1.5 py-1.5 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-1.5 py-1.5 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
             title="Back to library (Esc)"
           >
-            <ArrowLeftIcon size={13} />
+            <ArrowLeftIcon size={16} />
             <span className="hidden sm:inline max-w-[200px] truncate text-foreground font-medium text-[12px]">
               {doc.name}
             </span>
@@ -2619,17 +2619,17 @@ export default function PdfReader({
             title="Pages, Bookmarks & Outline (P / O)"
             active={showThumbs}
           >
-            <LayersIcon size={13} />
+            <LayersIcon size={16} />
           </ToolBtn>
 
 
           {/* Right: Search | Annotate Dropdown | View | Bookmark | Fullscreen | More */}
-          <div className="flex items-center gap-0.5 ml-auto">
+          <div className="flex items-center gap-1 ml-auto">
             {/* Search */}
             {showSearch ? (
-              <div className="flex items-center gap-1.5 bg-muted rounded border border-border px-2 py-1 focus-within:border-foreground/25 transition-colors">
+              <div className="flex items-center gap-1.5 bg-muted rounded-md border border-border px-2 py-1 focus-within:border-foreground/25 transition-colors">
                 <SearchIcon
-                  size={12}
+                  size={14}
                   className="text-muted-foreground shrink-0"
                 />
                 <input
@@ -2686,7 +2686,7 @@ export default function PdfReader({
                 }}
                 title={`Search (${MOD_LABEL}+F)`}
               >
-                <SearchIcon size={13} />
+                <SearchIcon size={16} />
               </ToolBtn>
             )}
 
@@ -2702,15 +2702,15 @@ export default function PdfReader({
               >
                 <div className="relative flex items-center justify-center">
                   {activeTool === "highlight" ? (
-                    <HighlighterIcon size={13} />
+                    <HighlighterIcon size={16} />
                   ) : activeTool === "pen" ? (
-                    <PenIcon size={13} />
+                    <PenIcon size={16} />
                   ) : activeTool === "note" ? (
-                    <StickyNoteIcon size={13} />
+                    <StickyNoteIcon size={16} />
                   ) : activeTool === "eraser" ? (
-                    <EraserIcon size={13} />
+                    <EraserIcon size={16} />
                   ) : (
-                    <HighlighterIcon size={13} />
+                    <HighlighterIcon size={16} />
                   )}
                   {activeTool !== "select" && (
                     <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-primary ring-1 ring-card" />
@@ -2913,11 +2913,11 @@ export default function PdfReader({
               >
                 {viewMode === "two-page" ||
                 viewMode === "two-page-continuous" ? (
-                  <GridIcon size={13} />
+                  <GridIcon size={16} />
                 ) : viewMode === "continuous" ? (
                   <svg
-                    width={13}
-                    height={13}
+                    width={16}
+                    height={16}
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -2929,7 +2929,7 @@ export default function PdfReader({
                     <line x1="3" y1="18" x2="21" y2="18" />
                   </svg>
                 ) : (
-                  <ListIcon size={13} />
+                  <ListIcon size={16} />
                 )}
               </ToolBtn>
 
@@ -3048,7 +3048,7 @@ export default function PdfReader({
               title={isBookmarked ? "Remove bookmark (B)" : "Bookmark page (B)"}
               active={isBookmarked}
             >
-              <BookmarkIcon size={13} filled={isBookmarked} />
+              <BookmarkIcon size={16} filled={isBookmarked} />
             </ToolBtn>
 
             <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
@@ -3064,9 +3064,9 @@ export default function PdfReader({
               active={isProReaderMode}
             >
               {isProReaderMode ? (
-                <MinimizeIcon size={13} />
+                <MinimizeIcon size={16} />
               ) : (
-                <MaximizeIcon size={13} />
+                <MaximizeIcon size={16} />
               )}
             </ToolBtn>
 
@@ -3078,7 +3078,7 @@ export default function PdfReader({
                 title="More options"
                 active={showMore}
               >
-                <MoreHorizontalIcon size={13} />
+                <MoreHorizontalIcon size={16} />
               </ToolBtn>
               {showMore && (
                 <div
@@ -3588,8 +3588,8 @@ export default function PdfReader({
             className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
             <svg
-              width={13}
-              height={13}
+              width={15}
+              height={15}
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -3610,8 +3610,8 @@ export default function PdfReader({
             className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
             <svg
-              width={13}
-              height={13}
+              width={15}
+              height={15}
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -3638,7 +3638,7 @@ export default function PdfReader({
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
-            <RefreshIcon size={13} />
+            <RefreshIcon size={15} />
           </button>
 
           <div className="h-4 w-px bg-border mx-1 shrink-0" />
@@ -3649,7 +3649,7 @@ export default function PdfReader({
             disabled={page <= 1}
             className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-25"
           >
-            <ChevronLeftIcon size={12} />
+            <ChevronLeftIcon size={14} />
           </button>
 
           <div className="flex items-center gap-1 px-1">
@@ -3683,7 +3683,7 @@ export default function PdfReader({
             disabled={page >= actualNumPages}
             className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-25"
           >
-            <ChevronRightIcon size={12} />
+            <ChevronRightIcon size={14} />
           </button>
 
           <div className="h-4 w-px bg-border mx-1 shrink-0" />
@@ -3694,7 +3694,7 @@ export default function PdfReader({
             title={`Zoom out (${MOD_LABEL}+−)`}
             className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
-            <ZoomOutIcon size={12} />
+            <ZoomOutIcon size={14} />
           </button>
 
           <span className="w-10 text-center py-1 text-[11px] font-mono text-muted-foreground">
@@ -3706,7 +3706,7 @@ export default function PdfReader({
             title={`Zoom in (${MOD_LABEL}++)`}
             className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
-            <ZoomInIcon size={12} />
+            <ZoomInIcon size={14} />
           </button>
         </div>
       </div>
@@ -3973,7 +3973,7 @@ function ToolBtn({
       // Data attributes such as `data-menu-trigger` must reach the DOM: the reader's
       // click-outside handling looks for them, and so do the UI tests.
       {...rest}
-      className={`p-1.5 rounded transition-colors disabled:opacity-30 ${
+      className={`p-1.5 rounded-md transition-colors disabled:opacity-30 ${
         active
           ? "bg-primary/10 text-primary"
           : "text-muted-foreground hover:text-foreground hover:bg-muted"

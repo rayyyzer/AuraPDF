@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core"
 import type Database from "@tauri-apps/plugin-sql"
 import { Doc, Bookmark } from "../../types"
 import { isTauriContext } from "../tauri"
@@ -53,10 +54,7 @@ export function getDb(): Promise<Database | null> {
 
   const p = (async () => {
     try {
-      const [{ default: Database }, { invoke }] = await Promise.all([
-        import("@tauri-apps/plugin-sql"),
-        import("@tauri-apps/api/core"),
-      ])
+      const { default: Database } = await import("@tauri-apps/plugin-sql")
       const customUrl = await invoke<string | null>("get_db_url").catch(
         () => null,
       )

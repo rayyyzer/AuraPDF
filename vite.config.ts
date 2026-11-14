@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
   return {
     base: "/",
     build: {
+      target: "es2022",
       sourcemap: emitSourcemaps ? "inline" : false,
       minify: !emitSourcemaps,
       cssMinify: true,

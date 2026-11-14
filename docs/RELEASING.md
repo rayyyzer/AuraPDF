@@ -11,6 +11,7 @@ cd D:\Projects\AuraPDF
 pnpm typecheck          # must print nothing
 pnpm test:rs            # must be all green
 pnpm test:selection     # 10 checks
+pnpm test:zoom          # zoom geometry invariants
 pnpm build
 pnpm tauri build        # produces the installers
 ```
@@ -24,10 +25,10 @@ If any of those fails, stop.
 Three files must agree — `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`.
 
 ```powershell
-# example: 0.9.0 -> 0.9.1
-(Get-Content package.json) -replace '"version": "0.9.0"', '"version": "0.9.1"' | Set-Content package.json
-(Get-Content src-tauri/tauri.conf.json) -replace '"version": "0.9.0"', '"version": "0.9.1"' | Set-Content src-tauri/tauri.conf.json
-(Get-Content src-tauri/Cargo.toml) -replace '^version = "0.9.0"', 'version = "0.9.1"' | Set-Content src-tauri/Cargo.toml
+# example: 1.0.0 -> 1.0.1
+(Get-Content package.json) -replace '"version": "1.0.0"', '"version": "1.0.1"' | Set-Content package.json
+(Get-Content src-tauri/tauri.conf.json) -replace '"version": "1.0.0"', '"version": "1.0.1"' | Set-Content src-tauri/tauri.conf.json
+(Get-Content src-tauri/Cargo.toml) -replace '^version = "1.0.0"', 'version = "1.0.1"' | Set-Content src-tauri/Cargo.toml
 ```
 
 Then rebuild — the installer filename carries the version.
@@ -37,7 +38,7 @@ Then rebuild — the installer filename carries the version.
 ## 2. Checksum and scan (required while unsigned)
 
 ```powershell
-Get-FileHash .\src-tauri\target\release\bundle\nsis\AuraPDF_0.9.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\src-tauri\target\release\bundle\nsis\AuraPDF_1.0.0_x64-setup.exe -Algorithm SHA256
 ```
 
 Upload the `.exe` to <https://www.virustotal.com>, publish the report link in the release
@@ -53,8 +54,8 @@ Only the application files. The working tree usually contains unrelated edits.
 ```powershell
 git add src src-tauri package.json pnpm-lock.yaml index.html THIRD_PARTY_NOTICES.md docs tests
 git status --porcelain          # read this before committing
-git commit -m "Release 0.9.0"
-git tag v0.9.0
+git commit -m "Release v1.0.0"
+git tag v1.0.0
 git push origin main --tags
 ```
 
