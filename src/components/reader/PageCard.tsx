@@ -701,6 +701,7 @@ export const PageCard = memo(function PageCard({
       data-page-height={viewport.height}
       data-rotation={viewport.rotation}
       onPointerDown={(event) => {
+        if (event.pointerType === "touch") return
         if (event.button !== 0 || !canSpatialSelect || readableSegments.length === 0)
           return
         try {

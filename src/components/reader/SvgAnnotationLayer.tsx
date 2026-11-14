@@ -425,6 +425,17 @@ export function SvgAnnotationLayer({
   }
 
   const handlePointerDown = (event: React.PointerEvent) => {
+    // Abort any active single-finger touch stroke when a second finger lands for pinch-zoom.
+    if (
+      event.pointerType === "touch" &&
+      pointerIdRef.current !== null &&
+      pointerIdRef.current !== event.pointerId &&
+      (drawingRef.current || isErasingRef.current)
+    ) {
+      resetDrawing()
+      return
+    }
+
     if (activeTool === "eraser") {
       event.currentTarget.setPointerCapture(event.pointerId)
       pointerIdRef.current = event.pointerId

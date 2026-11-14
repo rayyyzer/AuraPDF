@@ -1405,22 +1405,68 @@ export default function PdfReader({
       return state
     }
 
+    const isIgnoredPinchTarget = (target: EventTarget | null) => {
+      const el = target instanceof Element ? target : null
+      if (!el) return false
+      return Boolean(
+        el.closest("[role='dialog']") ||
+          el.closest("[data-reader-sidebar]") ||
+          el.closest("[data-menu-container]") ||
+          el.closest("[data-selection-popover]"),
+      )
+    }
+
+    const isContainerVisible = () => {
+      const rect = container.getBoundingClientRect()
+      return rect.width > 0 && rect.height > 0
+    }
+
+    const getPointerPair = (
+      pointers: Map<number, { clientX: number; clientY: number }>,
+    ) => {
+      const iter = pointers.values()
+      const first = iter.next().value
+      const second = iter.next().value
+      if (!first || !second) return null
+      const dist = Math.hypot(
+        second.clientX - first.clientX,
+        second.clientY - first.clientY,
+      )
+      if (dist <= 0) return null
+      return {
+        dist,
+        midX: (first.clientX + second.clientX) / 2,
+        midY: (first.clientY + second.clientY) / 2,
+      }
+    }
+
+    const activeTouchPointers = new Map<
+      number,
+      { clientX: number; clientY: number }
+    >()
+    let touchEventActive = false
+
     const handleWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return
+      if (!isContainerVisible() || zoomRef.current <= 0) return
       e.preventDefault()
-      e.stopPropagation()
 
-      const target = e.target as HTMLElement | null
-      if (
-        target?.closest("[data-reader-sidebar]") ||
-        target?.closest("[data-menu-container]") ||
-        target?.closest("[data-selection-popover]")
-      ) {
+      if (isIgnoredPinchTarget(e.target)) {
         return
       }
+      e.stopPropagation()
+
+      const rawDelta =
+        e.deltaMode === 1
+          ? e.deltaY * 16
+          : e.deltaMode === 2
+            ? e.deltaY * 400
+            : e.deltaY
 
       let state = pinchStateRef.current
       if (!state || !state.active) {
+        if (rawDelta === 0) return
+        window.getSelection()?.removeAllRanges()
         state = startPinchSession(e.clientX, e.clientY, 0)
         if (!state) return
       } else {
@@ -1428,88 +1474,210 @@ export default function PdfReader({
         state.curClientY = e.clientY
       }
 
-      const rawDelta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
-      const isDiscreteWheel = Math.abs(rawDelta) >= 40
-      const clamped = isDiscreteWheel
-        ? Math.sign(rawDelta) * Math.min(120, Math.abs(rawDelta))
-        : Math.max(-36, Math.min(36, rawDelta))
-      const sensitivity = isDiscreteWheel ? 0.0022 : 0.0085
-      const factor = Math.exp(-clamped * sensitivity)
+      if (rawDelta !== 0) {
+        const isDiscreteWheel = Math.abs(rawDelta) >= 40
+        const clamped = isDiscreteWheel
+          ? Math.sign(rawDelta) * Math.min(120, Math.abs(rawDelta))
+          : Math.max(-36, Math.min(36, rawDelta))
+        const sensitivity = isDiscreteWheel ? 0.0022 : 0.0115
+        const factor = Math.exp(-clamped * sensitivity)
 
-      state.currentScale = Math.max(
-        10,
-        Math.min(500, state.currentScale * factor),
-      )
+        state.currentScale = Math.max(
+          10,
+          Math.min(500, state.currentScale * factor),
+        )
+        schedulePinchFrame()
+      }
 
       if (state.wheelTimer) clearTimeout(state.wheelTimer)
       state.wheelTimer = setTimeout(() => {
         commitPinchZoomRef.current()
-      }, 150)
+      }, 180)
+    }
+
+    const beginOrReanchorTouchPinch = (
+      midX: number,
+      midY: number,
+      dist: number,
+    ) => {
+      const existing = pinchStateRef.current
+      if (existing?.active) {
+        if (existing.wheelTimer) {
+          clearTimeout(existing.wheelTimer)
+          existing.wheelTimer = null
+        }
+        existing.startDist = dist
+        existing.baseZoom = existing.currentScale
+        existing.curClientX = midX
+        existing.curClientY = midY
+        return
+      }
+      startPinchSession(midX, midY, dist)
+    }
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length < 2) return
+      if (!isContainerVisible() || zoomRef.current <= 0) return
+      if (isIgnoredPinchTarget(e.target)) return
+
+      const [t1, t2] = [e.touches[0], e.touches[1]]
+      const dist = Math.hypot(
+        t2.clientX - t1.clientX,
+        t2.clientY - t1.clientY,
+      )
+      if (dist <= 0) return
+
+      touchEventActive = true
+      e.preventDefault()
+      e.stopPropagation()
+      window.getSelection()?.removeAllRanges()
+
+      const midX = (t1.clientX + t2.clientX) / 2
+      const midY = (t1.clientY + t2.clientY) / 2
+      beginOrReanchorTouchPinch(midX, midY, dist)
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!touchEventActive || e.touches.length < 2) return
+      const state = pinchStateRef.current
+      if (!state?.active || state.startDist <= 0) return
+
+      e.preventDefault()
+      e.stopPropagation()
+      const [t1, t2] = [e.touches[0], e.touches[1]]
+      const dist = Math.hypot(
+        t2.clientX - t1.clientX,
+        t2.clientY - t1.clientY,
+      )
+      if (dist <= 0) return
+
+      state.curClientX = (t1.clientX + t2.clientX) / 2
+      state.curClientY = (t1.clientY + t2.clientY) / 2
+      const nextScale = (dist / state.startDist) * state.baseZoom
+      state.currentScale = Math.max(10, Math.min(500, nextScale))
 
       schedulePinchFrame()
     }
 
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        const [t1, t2] = [e.touches[0], e.touches[1]]
-        const dist = Math.hypot(
-          t2.clientX - t1.clientX,
-          t2.clientY - t1.clientY,
-        )
-        if (dist <= 0) return
-
-        const midX = (t1.clientX + t2.clientX) / 2
-        const midY = (t1.clientY + t2.clientY) / 2
-        if (pinchStateRef.current?.active) {
-          pinchStateRef.current.startDist = dist
-          pinchStateRef.current.curClientX = midX
-          pinchStateRef.current.curClientY = midY
-          return
-        }
-        startPinchSession(midX, midY, dist)
-      }
-    }
-
-    const handleTouchMove = (e: TouchEvent) => {
-      const state = pinchStateRef.current
-      if (e.touches.length === 2 && state?.active && state.startDist > 0) {
-        e.preventDefault()
-        const [t1, t2] = [e.touches[0], e.touches[1]]
-        const dist = Math.hypot(
-          t2.clientX - t1.clientX,
-          t2.clientY - t1.clientY,
-        )
-        if (dist <= 0) return
-
-        state.curClientX = (t1.clientX + t2.clientX) / 2
-        state.curClientY = (t1.clientY + t2.clientY) / 2
-        const nextScale = (dist / state.startDist) * state.baseZoom
-        state.currentScale = Math.max(10, Math.min(500, nextScale))
-
-        schedulePinchFrame()
-      }
-    }
-
     const handleTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2 && pinchStateRef.current?.active) {
+      if (e.touches.length < 2) {
+        touchEventActive = false
+        if (pinchStateRef.current?.active && pinchStateRef.current.startDist > 0) {
+          commitPinchZoomRef.current()
+        }
+      }
+    }
+
+    // Fallback for Windows touch drivers that dispatch PointerEvents without TouchEvents
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return
+      if (!isContainerVisible() || zoomRef.current <= 0) return
+      if (isIgnoredPinchTarget(e.target)) return
+
+      activeTouchPointers.set(e.pointerId, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+      })
+
+      if (touchEventActive || activeTouchPointers.size < 2) return
+      const pair = getPointerPair(activeTouchPointers)
+      if (!pair) return
+
+      if (e.cancelable) e.preventDefault()
+      window.getSelection()?.removeAllRanges()
+      beginOrReanchorTouchPinch(pair.midX, pair.midY, pair.dist)
+    }
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (e.pointerType !== "touch" || !activeTouchPointers.has(e.pointerId)) {
+        return
+      }
+      activeTouchPointers.set(e.pointerId, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+      })
+
+      if (touchEventActive || activeTouchPointers.size < 2) return
+      const state = pinchStateRef.current
+      if (!state?.active || state.startDist <= 0) return
+
+      const pair = getPointerPair(activeTouchPointers)
+      if (!pair) return
+
+      if (e.cancelable) e.preventDefault()
+      state.curClientX = pair.midX
+      state.curClientY = pair.midY
+      const nextScale = (pair.dist / state.startDist) * state.baseZoom
+      state.currentScale = Math.max(10, Math.min(500, nextScale))
+      schedulePinchFrame()
+    }
+
+    const handlePointerUpOrCancel = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return
+      activeTouchPointers.delete(e.pointerId)
+      if (
+        !touchEventActive &&
+        activeTouchPointers.size < 2 &&
+        pinchStateRef.current?.active &&
+        pinchStateRef.current.startDist > 0
+      ) {
         commitPinchZoomRef.current()
       }
     }
 
-    container.addEventListener("wheel", handleWheel, { passive: false })
+    window.addEventListener("wheel", handleWheel, {
+      capture: true,
+      passive: false,
+    })
     container.addEventListener("touchstart", handleTouchStart, {
+      capture: true,
+      passive: false,
+    })
+    container.addEventListener("touchmove", handleTouchMove, {
+      capture: true,
+      passive: false,
+    })
+    container.addEventListener("touchend", handleTouchEnd, {
+      capture: true,
       passive: true,
     })
-    container.addEventListener("touchmove", handleTouchMove, { passive: false })
-    container.addEventListener("touchend", handleTouchEnd, { passive: true })
-    container.addEventListener("touchcancel", handleTouchEnd, { passive: true })
+    container.addEventListener("touchcancel", handleTouchEnd, {
+      capture: true,
+      passive: true,
+    })
+    container.addEventListener("pointerdown", handlePointerDown, {
+      capture: true,
+      passive: false,
+    })
+    container.addEventListener("pointermove", handlePointerMove, {
+      capture: true,
+      passive: false,
+    })
+    container.addEventListener("pointerup", handlePointerUpOrCancel, {
+      capture: true,
+      passive: true,
+    })
+    container.addEventListener("pointercancel", handlePointerUpOrCancel, {
+      capture: true,
+      passive: true,
+    })
 
     return () => {
-      container.removeEventListener("wheel", handleWheel)
-      container.removeEventListener("touchstart", handleTouchStart)
-      container.removeEventListener("touchmove", handleTouchMove)
-      container.removeEventListener("touchend", handleTouchEnd)
-      container.removeEventListener("touchcancel", handleTouchEnd)
+      activeTouchPointers.clear()
+      touchEventActive = false
+      window.removeEventListener("wheel", handleWheel, true)
+      container.removeEventListener("touchstart", handleTouchStart, true)
+      container.removeEventListener("touchmove", handleTouchMove, true)
+      container.removeEventListener("touchend", handleTouchEnd, true)
+      container.removeEventListener("touchcancel", handleTouchEnd, true)
+      container.removeEventListener("pointerdown", handlePointerDown, true)
+      container.removeEventListener("pointermove", handlePointerMove, true)
+      container.removeEventListener("pointerup", handlePointerUpOrCancel, true)
+      container.removeEventListener(
+        "pointercancel",
+        handlePointerUpOrCancel,
+        true,
+      )
       if (pinchStateRef.current) {
         if (pinchStateRef.current.wheelTimer)
           clearTimeout(pinchStateRef.current.wheelTimer)
@@ -2311,7 +2479,7 @@ export default function PdfReader({
     <div
       className="flex flex-col bg-muted/60 dark:bg-background h-full relative overflow-hidden select-none"
       onPointerMove={handleReaderPointerMove}
-      style={{ touchAction: "pan-x pan-y" }}
+      style={{ touchAction: "manipulation" }}
     >
       {/* ── PINNED TAB BAR (Normal mode: tabs pinned at very top) ─── */}
       {!isProReaderMode && renderTabBar("relative z-40")}
@@ -2871,7 +3039,11 @@ export default function PdfReader({
       </header>
 
       {/* ── BODY ─────────────────────────────────────────────── */}
-      <div ref={containerRef} className="flex-1 relative overflow-hidden flex">
+      <div
+        ref={containerRef}
+        className="flex-1 relative overflow-hidden flex"
+        style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+      >
         {docLoadError ? (
           <div className="flex-1 flex flex-col items-center justify-center">
             <div className="text-red-500 mb-2 font-medium">
