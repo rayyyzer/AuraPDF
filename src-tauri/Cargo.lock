@@ -85,6 +85,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-sql",
  "tauri-plugin-updater",
+ "webview2-com",
  "windows",
 ]
 
